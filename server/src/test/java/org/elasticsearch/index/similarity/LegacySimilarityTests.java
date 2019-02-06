@@ -29,6 +29,7 @@ import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.test.ESSingleNodeTestCase;
+import org.elasticsearch.test.VersionUtils;
 
 import java.io.IOException;
 
@@ -43,9 +44,8 @@ public class LegacySimilarityTests extends ESSingleNodeTestCase {
     }
 
     public void testResolveDefaultSimilaritiesOn6xIndex() {
-        final Settings indexSettings = Settings.builder()
-                .put(IndexMetaData.SETTING_VERSION_CREATED, Version.V_6_3_0) // otherwise classic is forbidden
-                .build();
+        Version version = VersionUtils.randomVersionBetween(random(), Version.V_6_0_0, VersionUtils.getPreviousVersion(Version.V_7_0_0));
+        final Settings indexSettings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, version).build();
         final SimilarityService similarityService = createIndex("foo", indexSettings).similarityService();
         assertThat(similarityService.getSimilarity("classic").get(), instanceOf(ClassicSimilarity.class));
         assertWarnings("The [classic] similarity is now deprecated in favour of BM25, which is generally "
@@ -89,5 +89,4 @@ public class LegacySimilarityTests extends ESSingleNodeTestCase {
             assertThat(similarity.getDiscountOverlaps(), equalTo(false));
         }
     }
-
 }

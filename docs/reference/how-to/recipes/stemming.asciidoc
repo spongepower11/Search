@@ -86,13 +86,13 @@ GET index/_search
         "value": 2,
         "relation": "eq"
     },
-    "max_score": 0.18232156,
+    "max_score": 0.082873434,
     "hits": [
       {
         "_index": "index",
         "_type": "_doc",
         "_id": "1",
-        "_score": 0.18232156,
+        "_score": 0.082873434,
         "_source": {
           "body": "Ski resort"
         }
@@ -101,7 +101,7 @@ GET index/_search
         "_index": "index",
         "_type": "_doc",
         "_id": "2",
-        "_score": 0.18232156,
+        "_score": 0.082873434,
         "_source": {
           "body": "A pair of skis"
         }
@@ -147,13 +147,13 @@ GET index/_search
         "value": 1,
         "relation": "eq"
     },
-    "max_score": 0.8025915,
+    "max_score": 0.3648143,
     "hits": [
       {
         "_index": "index",
         "_type": "_doc",
         "_id": "1",
-        "_score": 0.8025915,
+        "_score": 0.3648143,
         "_source": {
           "body": "Ski resort"
         }
@@ -207,13 +207,13 @@ GET index/_search
         "value": 1,
         "relation": "eq"
     },
-    "max_score": 0.8025915,
+    "max_score": 0.3648143,
     "hits": [
       {
         "_index": "index",
         "_type": "_doc",
         "_id": "1",
-        "_score": 0.8025915,
+        "_score": 0.3648143,
         "_source": {
           "body": "Ski resort"
         }

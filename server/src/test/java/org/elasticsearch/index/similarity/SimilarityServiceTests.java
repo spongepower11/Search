@@ -21,14 +21,17 @@ package org.elasticsearch.index.similarity;
 import org.apache.lucene.index.FieldInvertState;
 import org.apache.lucene.search.CollectionStatistics;
 import org.apache.lucene.search.TermStatistics;
+import org.apache.lucene.search.similarities.BM25Similarity;
 import org.apache.lucene.search.similarities.BooleanSimilarity;
 import org.apache.lucene.search.similarities.Similarity;
 import org.apache.lucene.search.similarity.LegacyBM25Similarity;
 import org.elasticsearch.Version;
+import org.elasticsearch.cluster.metadata.IndexMetaData;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.IndexSettingsModule;
+import org.elasticsearch.test.VersionUtils;
 import org.hamcrest.Matchers;
 
 import java.util.Collections;
@@ -38,6 +41,14 @@ import static org.hamcrest.Matchers.instanceOf;
 public class SimilarityServiceTests extends ESTestCase {
     public void testDefaultSimilarity() {
         Settings settings = Settings.builder().build();
+        IndexSettings indexSettings = IndexSettingsModule.newIndexSettings("test", settings);
+        SimilarityService service = new SimilarityService(indexSettings, null, Collections.emptyMap());
+        assertThat(service.getDefaultSimilarity(), instanceOf(BM25Similarity.class));
+    }
+
+    public void testDefaultSimilarity6xIndices() {
+        Version version = VersionUtils.randomVersionBetween(random(), Version.V_6_0_0, VersionUtils.getPreviousVersion(Version.V_7_0_0));
+        Settings settings = Settings.builder().put(IndexMetaData.SETTING_VERSION_CREATED, version).build();
         IndexSettings indexSettings = IndexSettingsModule.newIndexSettings("test", settings);
         SimilarityService service = new SimilarityService(indexSettings, null, Collections.emptyMap());
         assertThat(service.getDefaultSimilarity(), instanceOf(LegacyBM25Similarity.class));
@@ -60,7 +71,15 @@ public class SimilarityServiceTests extends ESTestCase {
                 .build();
         IndexSettings indexSettings = IndexSettingsModule.newIndexSettings("test", settings);
         SimilarityService service = new SimilarityService(indexSettings, null, Collections.emptyMap());
-        assertTrue(service.getDefaultSimilarity() instanceof BooleanSimilarity);
+        assertThat(service.getDefaultSimilarity(), instanceOf(BooleanSimilarity.class));
+    }
+
+    public void testOverrideDefaultSimilarityWithLegacyBM25() {
+        Settings settings = Settings.builder().put("index.similarity.default.type", "LegacyBM25")
+            .build();
+        IndexSettings indexSettings = IndexSettingsModule.newIndexSettings("test", settings);
+        SimilarityService service = new SimilarityService(indexSettings, null, Collections.emptyMap());
+        assertThat(service.getDefaultSimilarity(), instanceOf(LegacyBM25Similarity.class));
     }
 
     public void testSimilarityValidation() {
@@ -133,5 +152,4 @@ public class SimilarityServiceTests extends ESTestCase {
                 () -> SimilarityService.validateSimilarity(Version.V_7_0_0, increasingScoresWithNormSim));
         assertThat(e.getMessage(), Matchers.containsString("Similarity scores should not increase when norm increases"));
     }
-
 }
