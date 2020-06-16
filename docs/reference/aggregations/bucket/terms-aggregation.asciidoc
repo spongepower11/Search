@@ -429,7 +429,7 @@ This will interpret the `script` parameter as an `inline` script with the defaul
 
 [source,console,id=terms-aggregation-stored-example]
 --------------------------------------------------
-POST /_scripts/my_script
+POST /_script/my_script
 {
   "script": {
     "lang": "painless",

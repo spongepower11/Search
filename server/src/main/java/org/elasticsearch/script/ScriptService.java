@@ -572,6 +572,16 @@ public class ScriptService implements Closeable, ClusterStateApplier {
         return new ScriptLanguagesInfo(types, languageContexts);
     }
 
+    public Map<String, StoredScriptSource> getStoredScripts(ClusterState state) {
+        ScriptMetadata scriptMetadata = state.metadata().custom(ScriptMetadata.TYPE);
+
+        if (scriptMetadata != null) {
+            return scriptMetadata.getStoredScripts();
+        } else {
+            return null;
+        }
+    }
+
     public ScriptStats stats() {
         return cacheHolder.get().stats();
     }

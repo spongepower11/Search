@@ -38,10 +38,18 @@ public class RestPutStoredScriptAction extends BaseRestHandler {
     @Override
     public List<Route> routes() {
         return List.of(
-            new Route(POST, "/_scripts/{id}"),
-            new Route(PUT, "/_scripts/{id}"),
-            new Route(POST, "/_scripts/{id}/{context}"),
-            new Route(PUT, "/_scripts/{id}/{context}"));
+            new ReplacedRoute(
+                POST, "/_script/{id}",
+                POST, "/_scripts/{id}"),
+            new ReplacedRoute(
+                PUT, "/_script/{id}",
+                PUT, "/_scripts/{id}"),
+            new ReplacedRoute(
+                POST, "/_script/{id}/{context}",
+                POST, "/_scripts/{id}/{context}"),
+            new ReplacedRoute(
+                PUT, "/_script/{id}/{context}",
+                PUT, "/_scripts/{id}/{context}"));
     }
 
     @Override

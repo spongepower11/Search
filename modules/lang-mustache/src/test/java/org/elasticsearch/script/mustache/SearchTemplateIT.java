@@ -170,7 +170,8 @@ public class SearchTemplateIT extends ESSingleNodeTestCase {
 
         GetStoredScriptResponse getResponse = client().admin().cluster()
                 .prepareGetStoredScript("testTemplate").get();
-        assertNotNull(getResponse.getSource());
+        assertEquals(1, getResponse.getStoredScripts().size());
+        assertNotNull(getResponse.getStoredScript("testTemplate"));
 
         BulkRequestBuilder bulkRequestBuilder = client().prepareBulk();
         bulkRequestBuilder.add(client().prepareIndex("test").setId("1").setSource("{\"theField\":\"foo\"}", XContentType.JSON));
@@ -192,8 +193,8 @@ public class SearchTemplateIT extends ESSingleNodeTestCase {
 
         assertAcked(client().admin().cluster().prepareDeleteStoredScript("testTemplate"));
 
-        getResponse = client().admin().cluster().prepareGetStoredScript("testTemplate").get();
-        assertNull(getResponse.getSource());
+        final GetStoredScriptResponse response = client().admin().cluster().prepareGetStoredScript("testTemplate").get();
+        assertNull(response.getStoredScript("testTemplate"));
     }
 
     public void testIndexedTemplate() throws Exception {
@@ -291,7 +292,7 @@ public class SearchTemplateIT extends ESSingleNodeTestCase {
             );
 
             GetStoredScriptResponse getResponse = client().admin().cluster().prepareGetStoredScript("git01").get();
-            assertNotNull(getResponse.getSource());
+            assertNotNull(getResponse.getStoredScript("git01"));
 
             Map<String, Object> templateParams = new HashMap<>();
             templateParams.put("P_Keyword1", "dev");

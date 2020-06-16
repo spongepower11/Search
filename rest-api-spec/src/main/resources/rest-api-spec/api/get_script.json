@@ -8,7 +8,13 @@
     "url":{
       "paths":[
         {
-          "path":"/_scripts/{id}",
+          "path":"/_script",
+          "methods":[
+            "GET"
+          ]
+        },
+        {
+          "path":"/_script/{id}",
           "methods":[
             "GET"
           ],
@@ -25,6 +31,10 @@
       "master_timeout":{
         "type":"time",
         "description":"Specify timeout for connection to master"
+      },
+      "new_format": {
+        "type" : "boolean",
+        "description" : "Use the new format"
       }
     }
   }

@@ -25,14 +25,18 @@ import org.elasticsearch.client.ElasticsearchClient;
 public class GetStoredScriptRequestBuilder extends MasterNodeReadOperationRequestBuilder<GetStoredScriptRequest,
         GetStoredScriptResponse, GetStoredScriptRequestBuilder> {
 
-
     public GetStoredScriptRequestBuilder(ElasticsearchClient client, GetStoredScriptAction action) {
         super(client, action, new GetStoredScriptRequest());
     }
 
+    public GetStoredScriptRequestBuilder setIds(String... ids) {
+        request.ids(ids);
+        return this;
+    }
+
+    @Deprecated
     public GetStoredScriptRequestBuilder setId(String id) {
         request.id(id);
         return this;
     }
-
 }

@@ -568,13 +568,13 @@ public class PainlessExecuteAction extends ActionType<PainlessExecuteAction.Resp
         @Override
         public List<Route> routes() {
             return List.of(
-                new Route(GET, "/_scripts/painless/_execute"),
-                new Route(POST, "/_scripts/painless/_execute"));
+                new Route(GET, "/_script/painless/_execute"),
+                new Route(POST, "/_script/painless/_execute"));
         }
 
         @Override
         public String getName() {
-            return "_scripts_painless_execute";
+            return "_script_painless_execute";
         }
 
         @Override

@@ -19,8 +19,10 @@
 
 package org.elasticsearch.action.admin.cluster.storedscripts;
 
+import org.elasticsearch.Version;
 import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.support.master.MasterNodeReadRequest;
+import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 
@@ -30,54 +32,88 @@ import static org.elasticsearch.action.ValidateActions.addValidationError;
 
 public class GetStoredScriptRequest extends MasterNodeReadRequest<GetStoredScriptRequest> {
 
-    protected String id;
+    private String[] ids;
 
-    GetStoredScriptRequest() {
-        super();
+    public GetStoredScriptRequest() {
+        this(new String[]{});
     }
 
-    public GetStoredScriptRequest(String id) {
-        super();
-
-        this.id = id;
+    public GetStoredScriptRequest(String... ids) {
+        this.ids = ids;
     }
 
     public GetStoredScriptRequest(StreamInput in) throws IOException {
         super(in);
-        id = in.readString();
-    }
-
-    @Override
-    public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
-        out.writeString(id);
-    }
-
-    @Override
-    public ActionRequestValidationException validate() {
-        ActionRequestValidationException validationException = null;
-
-        if (id == null || id.isEmpty()) {
-            validationException = addValidationError("must specify id for stored script", validationException);
-        } else if (id.contains("#")) {
-            validationException = addValidationError("id cannot contain '#' for stored script", validationException);
+        if (in.getVersion().onOrAfter(Version.V_7_9_0)) {
+            this.ids = in.readStringArray();
+        } else {
+            this.ids = new String[] { in.readString() };
         }
-
-        return validationException;
     }
 
+    /**
+     * Returns the ids of the scripts.
+     */
+    public String[] ids() {
+        return this.ids;
+    }
+
+    public GetStoredScriptRequest ids(String... ids) {
+        this.ids = ids;
+
+        return this;
+    }
+
+    /**
+     * @deprecated - Needed for backwards compatibility.
+     * Use {@link #ids()} instead
+     *
+     * Return the only script
+     */
+    @Deprecated
     public String id() {
-        return id;
+        assert(ids.length == 1);
+        return ids[0];
     }
 
+    /**
+     * @deprecated - Needed for backwards compatibility.
+     * Set the script ids param instead
+     */
+    @Deprecated
     public GetStoredScriptRequest id(String id) {
-        this.id = id;
+        this.ids = new String[] { id };
 
         return this;
     }
 
     @Override
+    public void writeTo(StreamOutput out) throws IOException {
+        super.writeTo(out);
+        if (out.getVersion().onOrAfter(Version.V_7_9_0)) {
+            out.writeStringArray(ids);
+        } else {
+            out.writeString(ids[0]);
+        }
+    }
+
+    @Override
+    public ActionRequestValidationException validate() {
+        ActionRequestValidationException validationException = null;
+        if (ids == null) {
+            validationException = addValidationError("ids is null or empty", validationException);
+        } else {
+            for (String name : ids) {
+                if (name == null || !Strings.hasText(name)) {
+                    validationException = addValidationError("id is missing", validationException);
+                }
+            }
+        }
+        return validationException;
+    }
+
+    @Override
     public String toString() {
-        return "get script [" + id + "]";
+        return "get script[ " + String.join(", ", ids) + "]";
     }
 }

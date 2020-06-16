@@ -135,7 +135,7 @@ The same script in the normal form:
 === Stored scripts
 
 Scripts may be stored in and retrieved from the cluster state using the
-`_scripts` end-point.
+`_script` end-point.
 
 If the {es} {security-features} are enabled, you must have the following 
 privileges to create, retrieve, and delete stored scripts:
@@ -149,13 +149,13 @@ For more information, see <<security-privileges>>.
 ==== Request examples
 
 The following are examples of using a stored script that lives at
-`/_scripts/{id}`.
+`/_script/{id}`.
 
 First, create the script called `calculate-score` in the cluster state:
 
 [source,console]
 -----------------------------------
-POST _scripts/calculate-score
+POST _script/calculate-score
 {
   "script": {
     "lang": "painless",
@@ -167,11 +167,11 @@ POST _scripts/calculate-score
 
 You may also specify a context as part of the url path to compile a
 stored script against that specific context in the form of
-`/_scripts/{id}/{context}`:
+`/_script/{id}/{context}`:
 
 [source,console]
 -----------------------------------
-POST _scripts/calculate-score/score
+POST _script/calculate-score/score
 {
   "script": {
     "lang": "painless",
@@ -185,7 +185,7 @@ This same script can be retrieved with:
 
 [source,console]
 -----------------------------------
-GET _scripts/calculate-score
+GET _script/calculate-score
 -----------------------------------
 // TEST[continued]
 
@@ -218,14 +218,14 @@ And deleted with:
 
 [source,console]
 -----------------------------------
-DELETE _scripts/calculate-score
+DELETE _script/calculate-score
 -----------------------------------
 // TEST[continued]
 
 [float]
 [[modules-scripting-search-templates]]
 === Search templates
-You can also use the `_scripts` API to store **search templates**. Search
+You can also use the `_script` API to store **search templates**. Search
 templates save specific <<search-search,search requests>> with placeholder
 values, called template parameters.
 

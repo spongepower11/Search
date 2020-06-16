@@ -720,7 +720,7 @@ public class SharedClusterSnapshotRestoreIT extends AbstractSnapshotIntegTestCas
         if (testScript) {
             logger.info("--> check that script is restored");
             GetStoredScriptResponse getStoredScriptResponse = client().admin().cluster().prepareGetStoredScript("foobar").get();
-            assertNotNull(getStoredScriptResponse.getSource());
+            assertNotNull(getStoredScriptResponse.getStoredScript("foobar"));
         }
 
         createIndex("test-idx");
@@ -769,7 +769,8 @@ public class SharedClusterSnapshotRestoreIT extends AbstractSnapshotIntegTestCas
         getIndexTemplatesResponse = client().admin().indices().prepareGetTemplates().get();
         assertIndexTemplateMissing(getIndexTemplatesResponse, "test-template");
         assertFalse(client().admin().cluster().prepareGetPipeline("barbaz").get().isFound());
-        assertNull(client().admin().cluster().prepareGetStoredScript("foobar").get().getSource());
+        final GetStoredScriptResponse getStoredScriptResponse = client().admin().cluster().prepareGetStoredScript("foobar").get();
+        assertNull(getStoredScriptResponse.getStoredScript("foobar"));
         assertThat(client.prepareSearch("test-idx").setSize(0).get().getHits().getTotalHits().value, equalTo(100L));
     }
 

@@ -1587,7 +1587,7 @@ public class RequestConvertersTests extends ESTestCase {
 
         Request request = RequestConverters.putScript(putStoredScriptRequest);
 
-        assertThat(request.getEndpoint(), equalTo("/_scripts/" + id));
+        assertThat(request.getEndpoint(), equalTo("/_script/" + id));
         assertThat(request.getParameters(), equalTo(expectedParams));
         assertNotNull(request.getEntity());
         assertToXContentBody(putStoredScriptRequest, request.getEntity());
@@ -1611,7 +1611,7 @@ public class RequestConvertersTests extends ESTestCase {
         setRandomMasterTimeout(getStoredScriptRequest, expectedParams);
 
         Request request = RequestConverters.getScript(getStoredScriptRequest);
-        assertThat(request.getEndpoint(), equalTo("/_scripts/" + getStoredScriptRequest.id()));
+        assertThat(request.getEndpoint(), equalTo("/_script/" + getStoredScriptRequest.id()));
         assertThat(request.getMethod(), equalTo(HttpGet.METHOD_NAME));
         assertThat(request.getParameters(), equalTo(expectedParams));
         assertThat(request.getEntity(), nullValue());
@@ -1625,7 +1625,7 @@ public class RequestConvertersTests extends ESTestCase {
         setRandomMasterTimeout(deleteStoredScriptRequest, expectedParams);
 
         Request request = RequestConverters.deleteScript(deleteStoredScriptRequest);
-        assertThat(request.getEndpoint(), equalTo("/_scripts/" + deleteStoredScriptRequest.id()));
+        assertThat(request.getEndpoint(), equalTo("/_script/" + deleteStoredScriptRequest.id()));
         assertThat(request.getMethod(), equalTo(HttpDelete.METHOD_NAME));
         assertThat(request.getParameters(), equalTo(expectedParams));
         assertThat(request.getEntity(), nullValue());
