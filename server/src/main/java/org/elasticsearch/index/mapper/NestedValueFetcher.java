@@ -8,11 +8,12 @@
 
 package org.elasticsearch.index.mapper;
 
-import org.apache.lucene.index.LeafReaderContext;
 import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.common.xcontent.support.XContentMapValues;
+import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.fetch.subphase.FieldFetcher;
 import org.elasticsearch.search.lookup.SourceLookup;
+import org.elasticsearch.search.lookup.ValuesLookup;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -39,10 +40,25 @@ public class NestedValueFetcher implements ValueFetcher {
     }
 
     @Override
-    public List<Object> fetchValues(SourceLookup lookup) throws IOException {
+    public List<Object> fetchValues(ValuesLookup lookup) throws IOException {
         List<Object> nestedEntriesToReturn = new ArrayList<>();
         Map<String, Object> filteredSource = new HashMap<>();
         Map<String, Object> stub = createSourceMapStub(filteredSource);
+        SourceLookup filteredSourceLookup = new SourceLookup();
+        filteredSourceLookup.setSource(filteredSource);
+        // DocValues will not work here because we are not positioned correctly,
+        // so we just return an empty list
+        ValuesLookup filteredLookup = new ValuesLookup() {
+            @Override
+            public SourceLookup source() {
+                return filteredSourceLookup;
+            }
+
+            @Override
+            public List<Object> docValues(String field, DocValueFormat format) {
+                return Collections.emptyList();
+            }
+        };
         List<?> nestedValues = XContentMapValues.extractNestedValue(nestedFieldPath, lookup.source());
         if (nestedValues == null) {
             return Collections.emptyList();
@@ -50,10 +66,8 @@ public class NestedValueFetcher implements ValueFetcher {
         for (Object entry : nestedValues) {
             // add this one entry only to the stub and use this as source lookup
             stub.put(nestedFieldName, entry);
-            SourceLookup nestedSourceLookup = new SourceLookup();
-            nestedSourceLookup.setSource(filteredSource);
 
-            Map<String, DocumentField> fetchResult = nestedFieldFetcher.fetch(nestedSourceLookup);
+            Map<String, DocumentField> fetchResult = nestedFieldFetcher.fetch(filteredLookup);
 
             Map<String, Object> nestedEntry = new HashMap<>();
             for (DocumentField field : fetchResult.values()) {
@@ -80,10 +94,5 @@ public class NestedValueFetcher implements ValueFetcher {
             next = newMap;
         }
         return next;
-    }
-
-    @Override
-    public void setNextReader(LeafReaderContext context) {
-        this.nestedFieldFetcher.setNextReader(context);
     }
 }
