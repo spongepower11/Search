@@ -110,6 +110,7 @@ public class IndicesQueryCacheTests extends ESTestCase {
         Settings settings = Settings.builder()
                 .put(IndicesQueryCache.INDICES_CACHE_QUERY_COUNT_SETTING.getKey(), 10)
                 .put(IndicesQueryCache.INDICES_QUERIES_CACHE_ALL_SEGMENTS_SETTING.getKey(), true)
+                .put(IndicesQueryCache.INDICES_QUERIES_CACHE_SKIP_CACHE_FACTOR_SETTING.getKey(), 10f)
                 .build();
         IndicesQueryCache cache = new IndicesQueryCache(settings);
         s.setQueryCache(cache);
@@ -191,6 +192,7 @@ public class IndicesQueryCacheTests extends ESTestCase {
         Settings settings = Settings.builder()
                 .put(IndicesQueryCache.INDICES_CACHE_QUERY_COUNT_SETTING.getKey(), 10)
                 .put(IndicesQueryCache.INDICES_QUERIES_CACHE_ALL_SEGMENTS_SETTING.getKey(), true)
+                .put(IndicesQueryCache.INDICES_QUERIES_CACHE_SKIP_CACHE_FACTOR_SETTING.getKey(), 10f)
                 .build();
         IndicesQueryCache cache = new IndicesQueryCache(settings);
         s1.setQueryCache(cache);
@@ -319,6 +321,7 @@ public class IndicesQueryCacheTests extends ESTestCase {
         Settings settings = Settings.builder()
                 .put(IndicesQueryCache.INDICES_CACHE_QUERY_COUNT_SETTING.getKey(), 10)
                 .put(IndicesQueryCache.INDICES_QUERIES_CACHE_ALL_SEGMENTS_SETTING.getKey(), true)
+                .put(IndicesQueryCache.INDICES_QUERIES_CACHE_SKIP_CACHE_FACTOR_SETTING.getKey(), 10f)
                 .build();
         IndicesQueryCache cache = new IndicesQueryCache(settings);
         s1.setQueryCache(cache);
@@ -401,6 +404,7 @@ public class IndicesQueryCacheTests extends ESTestCase {
         Settings settings = Settings.builder()
                 .put(IndicesQueryCache.INDICES_CACHE_QUERY_COUNT_SETTING.getKey(), 10)
                 .put(IndicesQueryCache.INDICES_QUERIES_CACHE_ALL_SEGMENTS_SETTING.getKey(), true)
+                .put(IndicesQueryCache.INDICES_QUERIES_CACHE_SKIP_CACHE_FACTOR_SETTING.getKey(), 10f)
                 .build();
         IndicesQueryCache cache = new IndicesQueryCache(settings);
         s.setQueryCache(cache);
