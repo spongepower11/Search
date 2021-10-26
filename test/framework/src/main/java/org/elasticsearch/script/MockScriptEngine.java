@@ -309,6 +309,7 @@ public class MockScriptEngine implements ScriptEngine {
             FieldScript.CONTEXT,
             TermsSetQueryScript.CONTEXT,
             NumberSortScript.CONTEXT,
+            LongSortScript.CONTEXT,
             StringSortScript.CONTEXT,
             IngestScript.CONTEXT,
             AggregationScript.CONTEXT,
