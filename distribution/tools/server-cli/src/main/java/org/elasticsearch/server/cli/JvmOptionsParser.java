@@ -77,9 +77,8 @@ final class JvmOptionsParser {
      * @throws IOException if there is a problem reading any of the files
      * @throws UserException if there is a problem parsing the jvm.options file or jvm.options.d files
      */
-    static List<String> determineJvmOptions(Path configDir, Path pluginsDir, Path tmpDir, String envOptions) throws InterruptedException,
-        IOException, UserException {
-
+    static List<String> determineJvmOptions(Path esHome, Path configDir, Path pluginsDir, Path tmpDir, String envOptions)
+        throws InterruptedException, IOException, UserException {
         final JvmOptionsParser parser = new JvmOptionsParser();
 
         final Map<String, String> substitutions = new HashMap<>();
@@ -87,7 +86,7 @@ final class JvmOptionsParser {
         substitutions.put("ES_PATH_CONF", configDir.toString());
 
         try {
-            return parser.jvmOptions(configDir, pluginsDir, envOptions, substitutions);
+            return parser.jvmOptions(esHome, configDir, pluginsDir, envOptions, substitutions);
         } catch (final JvmOptionsFileParserException e) {
             final String errorMessage = String.format(
                 Locale.ROOT,
@@ -116,8 +115,16 @@ final class JvmOptionsParser {
         }
     }
 
-    private List<String> jvmOptions(final Path config, Path plugins, final String esJavaOpts, final Map<String, String> substitutions)
-        throws InterruptedException, IOException, JvmOptionsFileParserException {
+    /* The Elasticsearch agent for JDK retransforms */
+    boolean addJDKAgent = true;
+
+    private List<String> jvmOptions(
+        final Path esHome,
+        final Path config,
+        Path plugins,
+        final String esJavaOpts,
+        final Map<String, String> substitutions
+    ) throws InterruptedException, IOException, JvmOptionsFileParserException {
 
         final List<String> jvmOptions = readJvmOptionsFiles(config);
 
@@ -140,7 +147,42 @@ final class JvmOptionsParser {
         finalJvmOptions.addAll(substitutedJvmOptions);
         finalJvmOptions.addAll(ergonomicJvmOptions);
 
+        if (addJDKAgent) {
+            Path libPath = esHome.resolve("lib").normalize().toAbsolutePath();
+            finalJvmOptions.add("-javaagent:" + agentJar(libPath));
+            finalJvmOptions.add("-Xbootclasspath/a:" + bootExtsJar(libPath));
+        }
+
         return finalJvmOptions;
+    }
+
+    private static String agentJar(Path libPath) throws IOException {
+        Path p = ensurePathExists(libPath.resolve("jdk-agent"));
+        try (var s = Files.walk(p, 1)) {
+            return s.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().startsWith("elasticsearch-jdk-agent"))
+                .map(Path::toString)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("cannot find jdk-agent jar"));
+        }
+    }
+
+    private static String bootExtsJar(Path libPath) throws IOException {
+        Path p = ensurePathExists(libPath.resolve("boot-exts"));
+        try (var s = Files.walk(p, 1)) {
+            return s.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().startsWith("elasticsearch-boot-exts"))
+                .map(Path::toString)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("cannot find boot-exts jar"));
+        }
+    }
+
+    static Path ensurePathExists(Path p) {
+        if (Files.notExists(p)) {
+            throw new AssertionError("path does not exist: " + p);
+        }
+        return p;
     }
 
     List<String> readJvmOptionsFiles(final Path config) throws IOException, JvmOptionsFileParserException {
