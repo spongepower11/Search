@@ -202,4 +202,8 @@ public class StringsTests extends ESTestCase {
         Strings.collectionToDelimitedStringWithLimit(strings, delimiter, prefix, suffix, limit, stringBuilder);
         assertThat(stringBuilder.toString(), equalTo(fullDescription));
     }
+
+    public void testSplitStringContainingOnlyCommasToArray() {
+        assertArrayEquals(new String[]{","}, Strings.splitStringByCommaToArray(","));
+    }
 }
