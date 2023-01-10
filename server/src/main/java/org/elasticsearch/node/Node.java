@@ -12,6 +12,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.util.Constants;
+import org.apache.lucene.util.NamedThreadFactory;
 import org.apache.lucene.util.SetOnce;
 import org.elasticsearch.Assertions;
 import org.elasticsearch.Build;
@@ -91,6 +92,7 @@ import org.elasticsearch.common.transport.BoundTransportAddress;
 import org.elasticsearch.common.transport.TransportAddress;
 import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.PageCacheRecycler;
+import org.elasticsearch.common.util.concurrent.FutureUtils;
 import org.elasticsearch.core.IOUtils;
 import org.elasticsearch.core.PathUtils;
 import org.elasticsearch.core.Releasables;
@@ -230,9 +232,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.UnaryOperator;
@@ -332,8 +339,8 @@ public class Node implements Closeable {
      *                                   test framework for tests that rely on being able to set private settings
      */
     protected Node(
-        final Environment initialEnvironment,
-        final Function<Settings, PluginsService> pluginServiceCtor,
+        Environment initialEnvironment,
+        BiFunction<Settings, Executor, PluginsService> pluginServiceCtor,
         boolean forbidPrivateIndexSettings
     ) {
         final List<Closeable> resourcesToClose = new ArrayList<>(); // register everything we need to release in the case of an error
@@ -413,7 +420,12 @@ public class Node implements Closeable {
                 (e, apmConfig) -> logger.error("failed to delete temporary APM config file [{}], reason: [{}]", apmConfig, e.getMessage())
             );
 
-            this.pluginsService = pluginServiceCtor.apply(tmpSettings);
+            ExecutorService pluginStartup = Executors.newCachedThreadPool(new NamedThreadFactory("pluginLoad"));
+            try {
+                this.pluginsService = pluginServiceCtor.apply(tmpSettings, pluginStartup);
+            } finally {
+                pluginStartup.shutdown();
+            }
             final Settings settings = mergePluginSettings(pluginsService.pluginMap(), tmpSettings);
 
             /*
@@ -717,23 +729,29 @@ public class Node implements Closeable {
                 threadPool
             );
 
-            Collection<Object> pluginComponents = pluginsService.flatMap(
-                p -> p.createComponents(
-                    client,
-                    clusterService,
-                    threadPool,
-                    resourceWatcherService,
-                    scriptService,
-                    xContentRegistry,
-                    environment,
-                    nodeEnvironment,
-                    namedWriteableRegistry,
-                    clusterModule.getIndexNameExpressionResolver(),
-                    repositoriesServiceReference::get,
-                    tracer,
-                    clusterModule.getAllocationService().getAllocationDeciders()
+            var componentLoads = pluginsService.map(
+                p -> CompletableFuture.supplyAsync(
+                    () -> p.createComponents(
+                        client,
+                        clusterService,
+                        threadPool,
+                        resourceWatcherService,
+                        scriptService,
+                        xContentRegistry,
+                        environment,
+                        nodeEnvironment,
+                        namedWriteableRegistry,
+                        clusterModule.getIndexNameExpressionResolver(),
+                        repositoriesServiceReference::get,
+                        tracer,
+                        clusterModule.getAllocationService().getAllocationDeciders()
+                    ),
+                    threadPool.generic()
                 )
             ).toList();
+
+            var pluginComponents = CompletableFuture.allOf(componentLoads.toArray(CompletableFuture<?>[]::new))
+                .thenApply(v -> componentLoads.stream().flatMap(c -> FutureUtils.get(c).stream()).toList());
 
             List<ReservedClusterStateHandler<?>> reservedStateHandlers = new ArrayList<>();
 
@@ -1069,7 +1087,7 @@ public class Node implements Closeable {
                         );
                 }
                 b.bind(HttpServerTransport.class).toInstance(httpServerTransport);
-                pluginComponents.forEach(p -> {
+                FutureUtils.get(pluginComponents).forEach(p -> {
                     @SuppressWarnings("unchecked")
                     Class<Object> pluginClass = (Class<Object>) p.getClass();
                     b.bind(pluginClass).toInstance(p);
@@ -1115,7 +1133,8 @@ public class Node implements Closeable {
             // reroute, which needs to call into the allocation service. We close the loop here:
             clusterModule.setExistingShardsAllocators(injector.getInstance(GatewayAllocator.class));
 
-            List<LifecycleComponent> pluginLifecycleComponents = pluginComponents.stream()
+            List<LifecycleComponent> pluginLifecycleComponents = FutureUtils.get(pluginComponents)
+                .stream()
                 .filter(p -> p instanceof LifecycleComponent)
                 .map(p -> (LifecycleComponent) p)
                 .toList();

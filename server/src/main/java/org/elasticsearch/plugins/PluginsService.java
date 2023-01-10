@@ -21,6 +21,8 @@ import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Setting.Property;
 import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.util.concurrent.EsExecutors;
+import org.elasticsearch.common.util.concurrent.FutureUtils;
 import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.core.PathUtils;
 import org.elasticsearch.core.SuppressForbidden;
@@ -50,6 +52,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -57,6 +60,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -100,6 +107,7 @@ public class PluginsService implements ReportingService<PluginsAndModules> {
 
     private final Settings settings;
     private final Path configPath;
+    private final Executor executor;
 
     /**
      * We keep around a list of plugins and modules
@@ -119,12 +127,25 @@ public class PluginsService implements ReportingService<PluginsAndModules> {
      * Constructs a new PluginService
      *
      * @param settings         The settings of the system
+     * @param configPath
      * @param modulesDirectory The directory modules exist in, or null if modules should not be loaded from the filesystem
      * @param pluginsDirectory The directory plugins exist in, or null if plugins should not be loaded from the filesystem
      */
     public PluginsService(Settings settings, Path configPath, Path modulesDirectory, Path pluginsDirectory) {
+        this(settings, configPath, modulesDirectory, pluginsDirectory, EsExecutors.DIRECT_EXECUTOR_SERVICE);
+    }
+
+    /**
+     * Constructs a new PluginService
+     *
+     * @param settings         The settings of the system
+     * @param modulesDirectory The directory modules exist in, or null if modules should not be loaded from the filesystem
+     * @param pluginsDirectory The directory plugins exist in, or null if plugins should not be loaded from the filesystem
+     */
+    public PluginsService(Settings settings, Path configPath, Path modulesDirectory, Path pluginsDirectory, Executor executor) {
         this.settings = settings;
         this.configPath = configPath;
+        this.executor = executor;
 
         Set<PluginBundle> seenBundles = new LinkedHashSet<>();
 
@@ -281,15 +302,32 @@ public class PluginsService implements ReportingService<PluginsAndModules> {
     }
 
     private Map<String, LoadedPlugin> loadBundles(Set<PluginBundle> bundles) {
-        Map<String, LoadedPlugin> loaded = new HashMap<>();
+        Map<String, LoadedPlugin> loaded = new ConcurrentHashMap<>();
         Map<String, Set<URL>> transitiveUrls = new HashMap<>();
-        List<PluginBundle> sortedBundles = PluginsUtils.sortBundles(bundles);
+        Graph<PluginBundle> pluginGraph = PluginsUtils.sortBundles(bundles);
         Set<URL> systemLoaderURLs = JarHell.parseModulesAndClassPath();
-        for (PluginBundle bundle : sortedBundles) {
+
+        Map<PluginBundle, CompletableFuture<Void>> pluginLoads = new LinkedHashMap<>();
+
+        for (var it = pluginGraph.breadthFirst(); it.hasNext();) {
+            PluginBundle bundle = it.next();
             PluginsUtils.checkBundleJarHell(systemLoaderURLs, bundle, transitiveUrls);
-            loadBundle(bundle, loaded);
+
+            CompletableFuture<?>[] dependencies = pluginGraph.predecessors(bundle)
+                .stream()
+                .map(pluginLoads::get)
+                .toArray(CompletableFuture<?>[]::new);
+
+            CompletableFuture<Void> load = CompletableFuture.allOf(dependencies).thenRunAsync(() -> loadBundle(bundle, loaded), executor);
+            pluginLoads.put(bundle, load);
         }
 
+        // wait until all plugins loaded, check for exceptions (that will just get re-thrown upwards)
+        for (CompletableFuture<?> f : pluginLoads.values()) {
+            FutureUtils.get(f);
+        }
+
+        // TODO: move this to inner loop?
         loadExtensions(loaded.values());
         return loaded;
     }
@@ -300,11 +338,8 @@ public class PluginsService implements ReportingService<PluginsAndModules> {
             .flatMap(t -> t.descriptor().getExtendedPlugins().stream().map(extendedPlugin -> Tuple.tuple(extendedPlugin, t.instance())))
             .collect(Collectors.groupingBy(Tuple::v1, Collectors.mapping(Tuple::v2, Collectors.toList())));
         for (LoadedPlugin pluginTuple : plugins) {
-            if (pluginTuple.instance() instanceof ExtensiblePlugin) {
-                loadExtensionsForPlugin(
-                    (ExtensiblePlugin) pluginTuple.instance(),
-                    extendingPluginsByName.getOrDefault(pluginTuple.descriptor().getName(), List.of())
-                );
+            if (pluginTuple.instance()instanceof ExtensiblePlugin ep) {
+                loadExtensionsForPlugin(ep, extendingPluginsByName.getOrDefault(pluginTuple.descriptor().getName(), List.of()));
             }
         }
     }
@@ -662,8 +697,14 @@ public class PluginsService implements ReportingService<PluginsAndModules> {
      * @param environment The environment for the plugins service.
      * @return A function for creating a plugins service.
      */
-    public static Function<Settings, PluginsService> getPluginsServiceCtor(Environment environment) {
-        return settings -> new PluginsService(settings, environment.configFile(), environment.modulesFile(), environment.pluginsFile());
+    public static BiFunction<Settings, Executor, PluginsService> getPluginsServiceCtor(Environment environment) {
+        return (settings, executor) -> new PluginsService(
+            settings,
+            environment.configFile(),
+            environment.modulesFile(),
+            environment.pluginsFile(),
+            executor
+        );
     }
 
     static final LayerAndLoader createPluginModuleLayer(PluginBundle bundle, ClassLoader parentLoader, List<ModuleLayer> parentLayers) {
