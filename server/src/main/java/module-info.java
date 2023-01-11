@@ -6,6 +6,8 @@
  * Side Public License, v 1.
  */
 
+import org.elasticsearch.index.codec.tsdb.ES87TSDBDocValuesFormat;
+
 /** The Elasticsearch Server Module. */
 module org.elasticsearch.server {
     requires java.logging;
@@ -369,4 +371,6 @@ module org.elasticsearch.server {
     uses org.elasticsearch.reservedstate.ReservedClusterStateHandlerProvider;
 
     provides org.apache.lucene.codecs.PostingsFormat with org.elasticsearch.index.codec.bloomfilter.ES85BloomFilterPostingsFormat;
+
+    provides org.apache.lucene.codecs.DocValuesFormat with ES87TSDBDocValuesFormat;
 }

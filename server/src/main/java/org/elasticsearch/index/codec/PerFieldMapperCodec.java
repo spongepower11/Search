@@ -19,9 +19,11 @@ import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.codec.bloomfilter.ES85BloomFilterPostingsFormat;
+import org.elasticsearch.index.codec.tsdb.ES87TSDBDocValuesFormat;
 import org.elasticsearch.index.mapper.IdFieldMapper;
 import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.index.mapper.MapperService;
+import org.elasticsearch.index.mapper.TimeSeriesIdFieldMapper;
 import org.elasticsearch.index.mapper.vectors.DenseVectorFieldMapper;
 
 /**
@@ -36,6 +38,7 @@ public class PerFieldMapperCodec extends Lucene94Codec {
 
     private final MapperService mapperService;
     private final DocValuesFormat docValuesFormat = new Lucene90DocValuesFormat();
+    private final DocValuesFormat tsidDocValuesFormat;
     private final ES85BloomFilterPostingsFormat bloomFilterPostingsFormat;
 
     static {
@@ -47,6 +50,7 @@ public class PerFieldMapperCodec extends Lucene94Codec {
         super(compressionMode);
         this.mapperService = mapperService;
         this.bloomFilterPostingsFormat = new ES85BloomFilterPostingsFormat(bigArrays, this::internalGetPostingsFormatForField);
+        this.tsidDocValuesFormat = new ES87TSDBDocValuesFormat(docValuesFormat);
     }
 
     @Override
@@ -80,6 +84,10 @@ public class PerFieldMapperCodec extends Lucene94Codec {
         }
     }
 
+    private boolean isTsIdField(String field) {
+        return IndexMode.TIME_SERIES.equals(mapperService.getIndexSettings().getMode()) && TimeSeriesIdFieldMapper.NAME.equals(field);
+    }
+
     @Override
     public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
         Mapper mapper = mapperService.mappingLookup().getMapper(field);
@@ -94,6 +102,9 @@ public class PerFieldMapperCodec extends Lucene94Codec {
 
     @Override
     public DocValuesFormat getDocValuesFormatForField(String field) {
+        if (isTsIdField(field)) {
+            return tsidDocValuesFormat;
+        }
         return docValuesFormat;
     }
 }
