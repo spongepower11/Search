@@ -91,8 +91,6 @@ import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.BaseAggregationBuilder;
 import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.PipelineAggregationBuilder;
-import org.elasticsearch.search.aggregations.bucket.composite.CompositeAggregationBuilder;
-import org.elasticsearch.search.aggregations.bucket.composite.InternalComposite;
 import org.elasticsearch.search.aggregations.bucket.filter.FilterAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.filter.FiltersAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.filter.InternalFilter;
@@ -622,12 +620,6 @@ public class SearchModule {
                 ScriptedMetricAggregationBuilder::new,
                 ScriptedMetricAggregationBuilder.PARSER
             ).addResultReader(InternalScriptedMetric::new),
-            builder
-        );
-        registerAggregation(
-            new AggregationSpec(CompositeAggregationBuilder.NAME, CompositeAggregationBuilder::new, CompositeAggregationBuilder.PARSER)
-                .addResultReader(InternalComposite::new)
-                .setAggregatorRegistrar(CompositeAggregationBuilder::registerAggregators),
             builder
         );
         if (RestApiVersion.minimumSupported() == RestApiVersion.V_7) {

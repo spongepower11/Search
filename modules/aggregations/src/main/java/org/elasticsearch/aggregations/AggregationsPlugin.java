@@ -10,6 +10,8 @@ package org.elasticsearch.aggregations;
 
 import org.elasticsearch.aggregations.bucket.adjacency.AdjacencyMatrixAggregationBuilder;
 import org.elasticsearch.aggregations.bucket.adjacency.InternalAdjacencyMatrix;
+import org.elasticsearch.aggregations.bucket.composite.CompositeAggregationBuilder;
+import org.elasticsearch.aggregations.bucket.composite.InternalComposite;
 import org.elasticsearch.aggregations.bucket.histogram.AutoDateHistogramAggregationBuilder;
 import org.elasticsearch.aggregations.bucket.histogram.InternalAutoDateHistogram;
 import org.elasticsearch.aggregations.bucket.timeseries.InternalTimeSeries;
@@ -24,6 +26,7 @@ import org.elasticsearch.aggregations.pipeline.DerivativePipelineAggregationBuil
 import org.elasticsearch.aggregations.pipeline.MovFnPipelineAggregationBuilder;
 import org.elasticsearch.aggregations.pipeline.MovingFunctionScript;
 import org.elasticsearch.index.IndexSettings;
+import org.elasticsearch.plugins.ExtensiblePlugin;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.ScriptPlugin;
 import org.elasticsearch.plugins.SearchPlugin;
@@ -32,7 +35,7 @@ import org.elasticsearch.script.ScriptContext;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AggregationsPlugin extends Plugin implements SearchPlugin, ScriptPlugin {
+public class AggregationsPlugin extends Plugin implements ExtensiblePlugin, SearchPlugin, ScriptPlugin {
     @Override
     public List<AggregationSpec> getAggregations() {
         List<AggregationSpec> specs = new ArrayList<>();
@@ -50,6 +53,11 @@ public class AggregationsPlugin extends Plugin implements SearchPlugin, ScriptPl
                 AutoDateHistogramAggregationBuilder.PARSER
             ).addResultReader(InternalAutoDateHistogram::new)
                 .setAggregatorRegistrar(AutoDateHistogramAggregationBuilder::registerAggregators)
+        );
+        specs.add(
+            new AggregationSpec(CompositeAggregationBuilder.NAME, CompositeAggregationBuilder::new, CompositeAggregationBuilder.PARSER)
+                .addResultReader(InternalComposite::new)
+                .setAggregatorRegistrar(CompositeAggregationBuilder::registerAggregators)
         );
         specs.add(
             new AggregationSpec(MatrixStatsAggregationBuilder.NAME, MatrixStatsAggregationBuilder::new, new MatrixStatsParser())

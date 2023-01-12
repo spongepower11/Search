@@ -1506,4 +1506,8 @@ public abstract class AggregatorTestCase extends ESTestCase {
             );
         }
     }
+
+    public static NestedObjectMapper nestedObject(String path) {
+        return new NestedObjectMapper.Builder(path, Version.CURRENT).build(MapperBuilderContext.root(false));
+    }
 }
