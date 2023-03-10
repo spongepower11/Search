@@ -20,15 +20,14 @@ import org.elasticsearch.env.Environment;
 import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.threadpool.TestThreadPool;
 import org.elasticsearch.threadpool.ThreadPool;
-import org.elasticsearch.xpack.core.XPackPlugin;
 import org.elasticsearch.xpack.core.watcher.watch.ClockMock;
 import org.junit.After;
 import org.junit.Before;
 
 import java.util.stream.Stream;
 
+import static java.util.Collections.emptyMap;
 import static java.util.Collections.emptySet;
-import static java.util.Collections.singletonMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -84,13 +83,7 @@ public abstract class AbstractLicenseServiceTestCase extends ESTestCase {
     }
 
     protected DiscoveryNode getLocalNode() {
-        return new DiscoveryNode(
-            "b",
-            buildNewFakeTransportAddress(),
-            singletonMap(XPackPlugin.XPACK_INSTALLED_NODE_ATTR, "true"),
-            emptySet(),
-            Version.CURRENT
-        );
+        return new DiscoveryNode("b", buildNewFakeTransportAddress(), emptyMap(), emptySet(), Version.CURRENT);
     }
 
     @After
