@@ -572,24 +572,22 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
      */
     public static void generateFailureXContent(XContentBuilder builder, Params params, @Nullable Exception e, boolean detailed)
         throws IOException {
-        // No exception to render as an error
         if (e == null) {
-            builder.field(ERROR, "unknown");
+            // No exception to render as an error
+            builder.startObject(ERROR);
+            builder.field(TYPE, "unknown");
+            builder.field(REASON, "unknown");
+            builder.endObject();
             return;
         }
 
-        // Render the exception with a simple message
         if (detailed == false) {
-            String message = "No ElasticsearchException found";
-            Throwable t = e;
-            for (int counter = 0; counter < 10 && t != null; counter++) {
-                if (t instanceof ElasticsearchException) {
-                    message = t.getClass().getSimpleName() + "[" + t.getMessage() + "]";
-                    break;
-                }
-                t = t.getCause();
-            }
-            builder.field(ERROR, message);
+            // just render the type & message
+            Throwable t = ExceptionsHelper.unwrapCause(e);
+            builder.startObject(ERROR);
+            builder.field(TYPE, getExceptionName(t));
+            builder.field(REASON, t.getMessage());
+            builder.endObject();
             return;
         }
 
@@ -692,8 +690,8 @@ public class ElasticsearchException extends RuntimeException implements ToXConte
 
     static String buildMessage(String type, String reason, String stack) {
         StringBuilder message = new StringBuilder("Elasticsearch exception [");
-        message.append(TYPE).append('=').append(type).append(", ");
-        message.append(REASON).append('=').append(reason);
+        message.append(TYPE).append('=').append(type);
+        message.append(", ").append(REASON).append('=').append(reason);
         if (stack != null) {
             message.append(", ").append(STACK_TRACE).append('=').append(stack);
         }
