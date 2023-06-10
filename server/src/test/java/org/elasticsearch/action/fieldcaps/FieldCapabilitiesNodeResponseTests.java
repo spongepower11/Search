@@ -99,7 +99,7 @@ public class FieldCapabilitiesNodeResponseTests extends AbstractWireSerializingT
         FieldCapabilitiesNodeResponse inNode = randomNodeResponse(indexResponses);
         final TransportVersion version = TransportVersionUtils.randomVersionBetween(
             random(),
-            TransportVersion.V_8_2_0,
+            TransportVersion.V_8_8_0,
             TransportVersion.CURRENT
         );
         final FieldCapabilitiesNodeResponse outNode = copyInstance(inNode, version);
@@ -154,7 +154,7 @@ public class FieldCapabilitiesNodeResponseTests extends AbstractWireSerializingT
             assertThat(outList.get(i).canMatch(), equalTo(inList.get(i).canMatch()));
             Map<String, IndexFieldCapabilities> outCap = outList.get(i).get();
             Map<String, IndexFieldCapabilities> inCap = inList.get(i).get();
-            if (version.onOrAfter(TransportVersion.V_8_0_0)) {
+            if (version.onOrAfter(TransportVersion.V_8_8_0)) {
                 assertThat(outCap, equalTo(inCap));
             } else {
                 // Exclude metric types which was introduced in 8.0
@@ -165,6 +165,10 @@ public class FieldCapabilitiesNodeResponseTests extends AbstractWireSerializingT
                     assertThat(outCap.get(field).isSearchable(), equalTo(inCap.get(field).isSearchable()));
                     assertThat(outCap.get(field).isAggregatable(), equalTo(inCap.get(field).isAggregatable()));
                     assertThat(outCap.get(field).meta(), equalTo(inCap.get(field).meta()));
+                    if (version.onOrAfter(TransportVersion.V_8_0_0)) {
+                        assertThat(outCap.get(field).getMetricType(), equalTo(inCap.get(field).getMetricType()));
+                        assertThat(outCap.get(field).isDimension(), equalTo(inCap.get(field).isDimension()));
+                    }
                 }
             }
         }
@@ -189,9 +193,9 @@ public class FieldCapabilitiesNodeResponseTests extends AbstractWireSerializingT
                     null,
                     Map.of(
                         "red_field",
-                        new IndexFieldCapabilities("red_field", "text", false, true, false, false, null, Map.of()),
+                        new IndexFieldCapabilities("red_field", "text", false, true, false, false, null, Set.of(), Map.of()),
                         "blue_field",
-                        new IndexFieldCapabilities("blue_field", "long", false, true, true, false, null, Map.of())
+                        new IndexFieldCapabilities("blue_field", "long", false, true, true, false, null, Set.of(), Map.of())
                     ),
                     true
                 ),
@@ -201,9 +205,9 @@ public class FieldCapabilitiesNodeResponseTests extends AbstractWireSerializingT
                     null,
                     Map.of(
                         "yellow_field",
-                        new IndexFieldCapabilities("yellow_field", "keyword", false, true, true, false, null, Map.of()),
+                        new IndexFieldCapabilities("yellow_field", "keyword", false, true, true, false, null, Set.of(), Map.of()),
                         "_seq_no",
-                        new IndexFieldCapabilities("_seq_no", "long", true, true, true, false, null, Map.of())
+                        new IndexFieldCapabilities("_seq_no", "long", true, true, true, false, null, Set.of(), Map.of())
                     ),
                     true
                 )
