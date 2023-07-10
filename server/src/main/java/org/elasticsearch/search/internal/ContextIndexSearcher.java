@@ -63,12 +63,6 @@ import java.util.concurrent.ThreadPoolExecutor;
  * Context-aware extension of {@link IndexSearcher}.
  */
 public class ContextIndexSearcher extends IndexSearcher implements Releasable {
-    /**
-     * The interval at which we check for search cancellation when we cannot use
-     * a {@link CancellableBulkScorer}. See {@link #intersectScorerAndBitSet}.
-     */
-    private static final int CHECK_CANCELLED_SCORER_INTERVAL = 1 << 11;
-
     private AggregatedDfs aggregatedDfs;
     private QueryProfiler profiler;
     private final MutableQueryTimeout cancellable;
@@ -290,35 +284,24 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
             return;
         }
         Bits liveDocs = ctx.reader().getLiveDocs();
-        BitSet liveDocsBitSet = getSparseBitSetOrNull(liveDocs);
+        BitSet liveDocsBitSet = null;// TODO getSparseBitSetOrNull(liveDocs);
+        BulkScorer bulkScorer;
         if (liveDocsBitSet == null) {
-            BulkScorer bulkScorer = weight.bulkScorer(ctx);
-            if (bulkScorer != null) {
-                if (cancellable.isEnabled()) {
-                    bulkScorer = new CancellableBulkScorer(bulkScorer, cancellable::checkCancelled);
-                }
-                try {
-                    bulkScorer.score(leafCollector, liveDocs);
-                } catch (CollectionTerminatedException e) {
-                    // collection was terminated prematurely
-                    // continue with the following leaf
-                }
-            }
+            bulkScorer = weight.bulkScorer(ctx);
         } else {
-            // if the role query result set is sparse then we should use the SparseFixedBitSet for advancing:
             Scorer scorer = weight.scorer(ctx);
-            if (scorer != null) {
-                try {
-                    intersectScorerAndBitSet(
-                        scorer,
-                        liveDocsBitSet,
-                        leafCollector,
-                        this.cancellable.isEnabled() ? cancellable::checkCancelled : () -> {}
-                    );
-                } catch (CollectionTerminatedException e) {
-                    // collection was terminated prematurely
-                    // continue with the following leaf
-                }
+            // if the role query result set is sparse then we should use the SparseFixedBitSet for advancing
+            bulkScorer = scorer == null ? null : new BitSetIntersectBulkScorer(scorer, liveDocsBitSet);
+        }
+        if (bulkScorer != null) {
+            if (cancellable.isEnabled()) {
+                bulkScorer = new CancellableBulkScorer(bulkScorer, cancellable::checkCancelled);
+            }
+            try {
+                bulkScorer.score(leafCollector, liveDocs);
+            } catch (CollectionTerminatedException e) {
+                // collection was terminated prematurely
+                // continue with the following leaf
             }
         }
     }
@@ -326,33 +309,11 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
     private static BitSet getSparseBitSetOrNull(Bits liveDocs) {
         if (liveDocs instanceof SparseFixedBitSet) {
             return (BitSet) liveDocs;
-        } else if (liveDocs instanceof CombinedBitSet
-            // if the underlying role bitset is sparse
-            && ((CombinedBitSet) liveDocs).getFirst() instanceof SparseFixedBitSet) {
-                return (BitSet) liveDocs;
-            } else {
-                return null;
-            }
-
-    }
-
-    static void intersectScorerAndBitSet(Scorer scorer, BitSet acceptDocs, LeafCollector collector, Runnable checkCancelled)
-        throws IOException {
-        collector.setScorer(scorer);
-        // ConjunctionDISI uses the DocIdSetIterator#cost() to order the iterators, so if roleBits has the lowest cardinality it should
-        // be used first:
-        DocIdSetIterator iterator = ConjunctionUtils.intersectIterators(
-            Arrays.asList(new BitSetIterator(acceptDocs, acceptDocs.approximateCardinality()), scorer.iterator())
-        );
-        int seen = 0;
-        checkCancelled.run();
-        for (int docId = iterator.nextDoc(); docId < DocIdSetIterator.NO_MORE_DOCS; docId = iterator.nextDoc()) {
-            if (++seen % CHECK_CANCELLED_SCORER_INTERVAL == 0) {
-                checkCancelled.run();
-            }
-            collector.collect(docId);
+        } else if (liveDocs instanceof CombinedBitSet && ((CombinedBitSet) liveDocs).getFirst() instanceof SparseFixedBitSet) {
+            return (BitSet) liveDocs;
+        } else {
+            return null;
         }
-        checkCancelled.run();
     }
 
     @Override
@@ -467,6 +428,40 @@ public class ContextIndexSearcher extends IndexSearcher implements Releasable {
                 }
             }
             task.run();
+        }
+    }
+
+    static final class BitSetIntersectBulkScorer extends BulkScorer {
+        private final Scorer scorer;
+        private final BitSet liveDocsBitSet;
+
+        BitSetIntersectBulkScorer(Scorer scorer, BitSet liveDocsBitSet) {
+            this.scorer = scorer;
+            this.liveDocsBitSet = liveDocsBitSet;
+        }
+
+        @Override
+        public int score(LeafCollector collector, Bits acceptDocs, int min, int max) throws IOException {
+            collector.setScorer(scorer);
+            // ConjunctionDISI uses the DocIdSetIterator#cost() to order the iterators, so if roleBits has the lowest cardinality it should
+            // be used first:
+            DocIdSetIterator iterator = ConjunctionUtils.intersectIterators(
+                Arrays.asList(new BitSetIterator(liveDocsBitSet, liveDocsBitSet.approximateCardinality()), scorer.iterator())
+            );
+            int currentDoc = iterator.docID();
+            if (currentDoc < min) {
+                currentDoc = iterator.advance(min);
+            }
+            while (currentDoc < max) {
+                collector.collect(currentDoc);
+                currentDoc = iterator.nextDoc();
+            }
+            return currentDoc;
+        }
+
+        @Override
+        public long cost() {
+            return scorer.iterator().cost();
         }
     }
 }
