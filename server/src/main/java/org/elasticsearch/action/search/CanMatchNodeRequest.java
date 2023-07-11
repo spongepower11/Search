@@ -207,6 +207,7 @@ public class CanMatchNodeRequest extends TransportRequest implements IndicesRequ
             numberOfShards,
             searchType,
             source,
+            (source != null) ? source.query() : null,
             requestCache,
             r.aliasFilter,
             r.indexBoost,

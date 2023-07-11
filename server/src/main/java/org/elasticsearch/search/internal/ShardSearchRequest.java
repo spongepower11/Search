@@ -88,6 +88,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
     // these are the only mutable fields, as they are subject to rewriting
     private AliasFilter aliasFilter;
     private SearchSourceBuilder source;
+    private QueryBuilder originalQuery;
     private final ShardSearchContextId readerId;
     private final TimeValue keepAlive;
 
@@ -147,6 +148,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
             numberOfShards,
             searchRequest.searchType(),
             searchRequest.source(),
+            (searchRequest.source() != null) ? searchRequest.source().query() : null,
             searchRequest.requestCache(),
             aliasFilter,
             indexBoost,
@@ -189,6 +191,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
             SearchType.QUERY_THEN_FETCH,
             null,
             null,
+            null,
             aliasFilter,
             1.0f,
             true,
@@ -210,6 +213,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
         int numberOfShards,
         SearchType searchType,
         SearchSourceBuilder source,
+        QueryBuilder originalQuery,
         Boolean requestCache,
         AliasFilter aliasFilter,
         float indexBoost,
@@ -228,6 +232,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
         this.numberOfShards = numberOfShards;
         this.searchType = searchType;
         this.source(source);
+        this.originalQuery(originalQuery);
         this.requestCache = requestCache;
         this.aliasFilter = aliasFilter;
         this.indexBoost = indexBoost;
@@ -252,6 +257,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
         this.numberOfShards = clone.numberOfShards;
         this.scroll = clone.scroll;
         this.source(clone.source);
+        this.originalQuery(clone.originalQuery);
         this.aliasFilter = clone.aliasFilter;
         this.indexBoost = clone.indexBoost;
         this.nowInMillis = clone.nowInMillis;
@@ -277,6 +283,9 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
         numberOfShards = in.readVInt();
         scroll = in.readOptionalWriteable(Scroll::new);
         source = in.readOptionalWriteable(SearchSourceBuilder::new);
+        if (in.getTransportVersion().onOrAfter(TransportVersion.V_8_500_032)) {
+            originalQuery = in.readOptionalNamedWriteable(QueryBuilder.class);
+        }
         if (in.getTransportVersion().onOrAfter(TransportVersion.V_8_8_0) && in.getTransportVersion().before(TransportVersion.V_8_500_013)) {
             // to deserialize between the 8.8 and 8.500.013 version we need to translate
             // the rank queries into sub searches if we are ranking; if there are no rank queries
@@ -370,6 +379,9 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
         }
         out.writeOptionalWriteable(scroll);
         out.writeOptionalWriteable(source);
+        if (out.getTransportVersion().onOrAfter(TransportVersion.V_8_500_032)) {
+            out.writeOptionalNamedWriteable(originalQuery);
+        }
         if (out.getTransportVersion().onOrAfter(TransportVersion.V_8_8_0)
             && out.getTransportVersion().before(TransportVersion.V_8_500_013)) {
             // to serialize between the 8.8 and 8.500.013 version we need to translate
@@ -452,6 +464,14 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
 
     public SearchSourceBuilder source() {
         return source;
+    }
+
+    public QueryBuilder originalQuery() {
+        return originalQuery;
+    }
+
+    public void originalQuery(QueryBuilder originalQuery) {
+        this.originalQuery = originalQuery;
     }
 
     public AliasFilter getAliasFilter() {
@@ -628,6 +648,7 @@ public class ShardSearchRequest extends TransportRequest implements IndicesReque
                     newSource.size(0);
                 }
                 request.source(newSource);
+                request.originalQuery(request.source().query());
                 request.setBottomSortValues(null);
             }
 

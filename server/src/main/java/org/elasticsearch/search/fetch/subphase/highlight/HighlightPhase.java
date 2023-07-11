@@ -10,9 +10,11 @@ package org.elasticsearch.search.fetch.subphase.highlight;
 
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.Query;
+import org.elasticsearch.index.mapper.ConstantFieldType;
 import org.elasticsearch.index.mapper.KeywordFieldMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.TextFieldMapper;
+import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.search.fetch.FetchContext;
 import org.elasticsearch.search.fetch.FetchSubPhase;
 import org.elasticsearch.search.fetch.FetchSubPhaseProcessor;
@@ -113,7 +115,7 @@ public class HighlightPhase implements FetchSubPhase {
                 MappedFieldType fieldType = context.getSearchExecutionContext().getFieldType(fieldName);
 
                 // We should prevent highlighting if a field is anything but a text, match_only_text,
-                // or keyword field.
+                // keyword or constant_keyword field.
                 // However, someone might implement a custom field type that has text and still want to
                 // highlight on that. We cannot know in advance if the highlighter will be able to
                 // highlight such a field and so we do the following:
@@ -124,6 +126,7 @@ public class HighlightPhase implements FetchSubPhase {
                 if (fieldNameContainsWildcards) {
                     if (fieldType.typeName().equals(TextFieldMapper.CONTENT_TYPE) == false
                         && fieldType.typeName().equals(KeywordFieldMapper.CONTENT_TYPE) == false
+                        && fieldType.typeName().equals("constant_keyword") == false
                         && fieldType.typeName().equals("match_only_text") == false) {
                         continue;
                     }
@@ -138,7 +141,7 @@ public class HighlightPhase implements FetchSubPhase {
                     sourceRequired = true;
                 }
 
-                Query highlightQuery = field.fieldOptions().highlightQuery();
+                Query highlightQuery = getHighlightQuery(context, field, fieldType);
 
                 builders.put(
                     fieldName,
@@ -156,5 +159,15 @@ public class HighlightPhase implements FetchSubPhase {
             storedFieldsSpec = storedFieldsSpec.merge(new StoredFieldsSpec(sourceRequired, false, storedFields));
         }
         return new FieldContext(storedFieldsSpec, builders);
+    }
+
+    private Query getHighlightQuery(FetchContext context, SearchHighlightContext.Field field, MappedFieldType fieldType) {
+        if (fieldType instanceof ConstantFieldType) {
+            QueryBuilder originalQuery = context.originalQueryBuilder();
+            if (originalQuery != null) {
+                return originalQuery.toHighlightQuery(fieldType.name());
+            }
+        }
+        return field.fieldOptions().highlightQuery();
     }
 }
