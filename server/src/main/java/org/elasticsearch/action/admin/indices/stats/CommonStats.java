@@ -14,6 +14,7 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.common.unit.ByteSizeValue;
+import org.elasticsearch.common.util.LazyInitializable;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.index.bulk.stats.BulkStats;
 import org.elasticsearch.index.cache.query.QueryCacheStats;
@@ -31,6 +32,7 @@ import org.elasticsearch.index.shard.DocsStats;
 import org.elasticsearch.index.shard.IndexShard;
 import org.elasticsearch.index.shard.IndexingStats;
 import org.elasticsearch.index.shard.ShardCountStats;
+import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.index.store.StoreStats;
 import org.elasticsearch.index.translog.TranslogStats;
 import org.elasticsearch.index.warmer.WarmerStats;
@@ -41,6 +43,7 @@ import org.elasticsearch.xcontent.ToXContentFragment;
 import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.Objects;
 
 public class CommonStats implements Writeable, ToXContentFragment {
@@ -140,7 +143,11 @@ public class CommonStats implements Writeable, ToXContentFragment {
     /**
      * Filters the given flags for {@link CommonStatsFlags#SHARD_LEVEL} flags and calculates the corresponding statistics.
      */
-    public static CommonStats getShardLevelStats(IndicesQueryCache indicesQueryCache, IndexShard indexShard, CommonStatsFlags flags) {
+    public static CommonStats getShardLevelStats(
+        QueryCacheStatsMemoized queryCacheStatsMemoized,
+        IndexShard indexShard,
+        CommonStatsFlags flags
+    ) {
         // Filter shard level flags
         CommonStatsFlags filteredFlags = flags.clone();
         for (CommonStatsFlags.Flag flag : filteredFlags.getFlags()) {
@@ -160,7 +167,7 @@ public class CommonStats implements Writeable, ToXContentFragment {
                     case Refresh -> stats.refresh = indexShard.refreshStats();
                     case Flush -> stats.flush = indexShard.flushStats();
                     case Warmer -> stats.warmer = indexShard.warmerStats();
-                    case QueryCache -> stats.queryCache = indicesQueryCache.getStats(indexShard.shardId());
+                    case QueryCache -> stats.queryCache = queryCacheStatsMemoized.get(indexShard.shardId());
                     case FieldData -> stats.fieldData = indexShard.fieldDataStats(flags.fieldDataFields());
                     case Completion -> stats.completion = indexShard.completionStats(flags.completionDataFields());
                     case Segments -> stats.segments = indexShard.segmentStats(
@@ -182,6 +189,19 @@ public class CommonStats implements Writeable, ToXContentFragment {
         }
 
         return stats;
+    }
+
+    public static class QueryCacheStatsMemoized {
+
+        private final LazyInitializable<Map<ShardId, QueryCacheStats>, RuntimeException> generalStats;
+
+        public QueryCacheStatsMemoized(IndicesQueryCache indicesQueryCache) {
+            this.generalStats = new LazyInitializable<>(indicesQueryCache::getGeneralStats);
+        }
+
+        public QueryCacheStats get(ShardId shardId) {
+            return Objects.requireNonNullElseGet(generalStats.getOrCompute().get(shardId), QueryCacheStats::new);
+        }
     }
 
     public CommonStats(StreamInput in) throws IOException {

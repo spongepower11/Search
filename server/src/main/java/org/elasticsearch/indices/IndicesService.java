@@ -492,11 +492,12 @@ public class IndicesService extends AbstractLifecycleComponent
 
     static Map<Index, List<IndexShardStats>> statsByShard(final IndicesService indicesService, final CommonStatsFlags flags) {
         final Map<Index, List<IndexShardStats>> statsByShard = new HashMap<>();
+        final var queryCacheStatsMemoized = new CommonStats.QueryCacheStatsMemoized(indicesService.getIndicesQueryCache());
 
         for (final IndexService indexService : indicesService) {
             for (final IndexShard indexShard : indexService) {
                 try {
-                    final IndexShardStats indexShardStats = indicesService.indexShardStats(indicesService, indexShard, flags);
+                    final IndexShardStats indexShardStats = indicesService.indexShardStats(queryCacheStatsMemoized, indexShard, flags);
 
                     if (indexShardStats == null) {
                         continue;
@@ -517,7 +518,11 @@ public class IndicesService extends AbstractLifecycleComponent
         return statsByShard;
     }
 
-    IndexShardStats indexShardStats(final IndicesService indicesService, final IndexShard indexShard, final CommonStatsFlags flags) {
+    IndexShardStats indexShardStats(
+        final CommonStats.QueryCacheStatsMemoized queryCacheStatsMemoized,
+        final IndexShard indexShard,
+        final CommonStatsFlags flags
+    ) {
         if (indexShard.routingEntry() == null) {
             return null;
         }
@@ -542,7 +547,7 @@ public class IndicesService extends AbstractLifecycleComponent
                 new ShardStats(
                     indexShard.routingEntry(),
                     indexShard.shardPath(),
-                    CommonStats.getShardLevelStats(indicesService.getIndicesQueryCache(), indexShard, flags),
+                    CommonStats.getShardLevelStats(queryCacheStatsMemoized, indexShard, flags),
                     commitStats,
                     seqNoStats,
                     retentionLeaseStats,
