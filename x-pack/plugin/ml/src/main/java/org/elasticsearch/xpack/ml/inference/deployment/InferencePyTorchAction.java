@@ -120,11 +120,6 @@ class InferencePyTorchAction extends AbstractPyTorchAction<InferenceResults> {
         TokenizationResult tokenization,
         NlpTask.ResultProcessor inferenceResultsProcessor
     ) {
-        if (pyTorchResult.isError()) {
-            onFailure(pyTorchResult.errorResult().error());
-            return;
-        }
-
         logger.debug(() -> format("[%s] retrieved result for request [%s]", getDeploymentId(), getRequestId()));
         if (isNotified()) {
             // The request has timed out. No need to spend cycles processing the result.
@@ -141,6 +136,11 @@ class InferencePyTorchAction extends AbstractPyTorchAction<InferenceResults> {
             onFailure("inference task cancelled");
             return;
         }
+        if (pyTorchResult.isError()) {
+            onFailure(pyTorchResult.errorResult().error());
+            return;
+        }
+
         InferenceResults results = inferenceResultsProcessor.processResult(tokenization, pyTorchResult.inferenceResult());
         logger.debug(() -> format("[%s] processed result for request [%s]", getDeploymentId(), getRequestId()));
         onSuccess(results);
