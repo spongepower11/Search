@@ -25,6 +25,7 @@ import org.elasticsearch.cluster.ClusterStateObserver;
 import org.elasticsearch.cluster.metadata.IndexMetadata;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.breaker.CircuitBreakingException;
 import org.elasticsearch.common.component.Lifecycle;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
@@ -795,6 +796,16 @@ public class PeerRecoveryTargetService implements IndexEventListener {
                 retryRecovery(
                     recoveryId,
                     "remote shard not ready",
+                    recoverySettings.retryDelayStateSync(),
+                    recoverySettings.activityTimeout()
+                );
+                return;
+            }
+
+            if (cause instanceof CircuitBreakingException) {
+                retryRecovery(
+                    recoveryId,
+                    "remote shard responded with circuit_breaking_exception",
                     recoverySettings.retryDelayStateSync(),
                     recoverySettings.activityTimeout()
                 );
