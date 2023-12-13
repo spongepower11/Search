@@ -600,7 +600,14 @@ public class Coordinator extends AbstractLifecycleComponent implements ClusterSt
     private Join joinLeaderInTerm(StartJoinRequest startJoinRequest) {
         synchronized (mutex) {
             logger.debug("joinLeaderInTerm: for [{}] with term {}", startJoinRequest.getMasterCandidateNode(), startJoinRequest.getTerm());
-            final Join join = coordinationState.get().handleStartJoin(startJoinRequest);
+            final Join join;
+            try {
+                join = coordinationState.get().handleStartJoin(startJoinRequest);
+            } catch (Exception e) {
+                logger.warn(Strings.format("joinLeaderInTerm: failed to handle start-join request [%s]", startJoinRequest), e);
+                becomeCandidate("joinLeaderInTerm");
+                throw e;
+            }
             lastJoin = Optional.of(join);
             peerFinder.setCurrentTerm(getCurrentTerm());
             if (mode != Mode.CANDIDATE) {
@@ -1380,7 +1387,13 @@ public class Coordinator extends AbstractLifecycleComponent implements ClusterSt
 
     private void handleJoin(Join join) {
         synchronized (mutex) {
-            ensureTermAtLeast(getLocalNode(), join.term()).ifPresent(this::handleJoin);
+            try {
+                ensureTermAtLeast(getLocalNode(), join.term()).ifPresent(this::handleJoin);
+            } catch (Exception e) {
+                // already logged at WARN, nothing else to be done
+                logger.debug(Strings.format("handleJoin: failed to increase term while handling join [%s]", join), e);
+                return;
+            }
 
             if (coordinationState.get().electionWon()) {
                 // If we have already won the election then the actual join does not matter for election purposes, so swallow any exception
@@ -1690,9 +1703,21 @@ public class Coordinator extends AbstractLifecycleComponent implements ClusterSt
 
         @Override
         protected void onActiveMasterFound(DiscoveryNode masterNode, long term) {
-            synchronized (mutex) {
-                ensureTermAtLeast(masterNode, term);
-                joinHelper.sendJoinRequest(masterNode, getCurrentTerm(), joinWithDestination(lastJoin, masterNode, term));
+            try {
+                synchronized (mutex) {
+                    ensureTermAtLeast(masterNode, term);
+                    joinHelper.sendJoinRequest(masterNode, getCurrentTerm(), joinWithDestination(lastJoin, masterNode, term));
+                }
+            } catch (Exception e) {
+                // already logged at WARN, nothing else to be done
+                logger.debug(
+                    () -> Strings.format(
+                        "onActiveMasterFound: failed to advance term to [%d] for [%s]",
+                        term,
+                        masterNode.descriptionWithoutAttributes()
+                    ),
+                    e
+                );
             }
         }
 
