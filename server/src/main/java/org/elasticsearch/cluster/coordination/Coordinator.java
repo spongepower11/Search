@@ -603,6 +603,10 @@ public class Coordinator extends AbstractLifecycleComponent implements ClusterSt
             final Join join;
             try {
                 join = coordinationState.get().handleStartJoin(startJoinRequest);
+            } catch (CoordinationStateRejectedException e) {
+                // term did not advance, we can just ignore this
+                assert startJoinRequest.getTerm() <= getCurrentTerm() : startJoinRequest + " vs " + getCurrentTerm();
+                throw e;
             } catch (Exception e) {
                 logger.warn(Strings.format("joinLeaderInTerm: failed to handle start-join request [%s]", startJoinRequest), e);
                 becomeCandidate("joinLeaderInTerm");
