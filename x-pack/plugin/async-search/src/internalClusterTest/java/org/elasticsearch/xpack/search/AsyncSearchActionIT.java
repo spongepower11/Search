@@ -300,6 +300,7 @@ public class AsyncSearchActionIT extends AsyncSearchIntegTestCase {
         assertNull(response.getSearchResponse());
         assertNotNull(response.getFailure());
         assertFalse(response.isRunning());
+        assertTrue(response.isPartial());
         Exception exc = response.getFailure();
         assertThat(exc.getMessage(), containsString("error while executing search"));
         assertThat(exc.getCause().getMessage(), containsString("no such index"));
@@ -312,6 +313,7 @@ public class AsyncSearchActionIT extends AsyncSearchIntegTestCase {
         AsyncSearchResponse response = submitAsyncSearch(request);
         assertNotNull(response.getSearchResponse());
         assertTrue(response.isRunning());
+        assertTrue(response.isPartial());
         assertThat(response.getSearchResponse().getTotalShards(), equalTo(numShards));
         assertThat(response.getSearchResponse().getSuccessfulShards(), equalTo(0));
         assertThat(response.getSearchResponse().getFailedShards(), equalTo(0));
@@ -319,12 +321,14 @@ public class AsyncSearchActionIT extends AsyncSearchIntegTestCase {
         response = getAsyncSearch(response.getId());
         assertNotNull(response.getSearchResponse());
         assertTrue(response.isRunning());
+        assertTrue(response.isPartial());
         assertThat(response.getSearchResponse().getTotalShards(), equalTo(numShards));
         assertThat(response.getSearchResponse().getSuccessfulShards(), equalTo(0));
         assertThat(response.getSearchResponse().getFailedShards(), equalTo(0));
 
         AsyncStatusResponse statusResponse = getAsyncStatus(response.getId());
         assertTrue(statusResponse.isRunning());
+        assertTrue(statusResponse.isPartial());
         assertEquals(numShards, statusResponse.getTotalShards());
         assertEquals(0, statusResponse.getSuccessfulShards());
         assertEquals(0, statusResponse.getSkippedShards());
