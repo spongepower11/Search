@@ -132,7 +132,7 @@ public class OrdinalsGroupingOperator implements Operator {
     }
 
     @Override
-    public void addInput(Page page) {
+    public void addInput(Page page) throws IOException {
         checkState(needsInput(), "Operator is already finishing");
         requireNonNull(page, "page is null");
         DocVector docVector = page.<DocBlock>getBlock(docChannel).asVector();
@@ -202,7 +202,7 @@ public class OrdinalsGroupingOperator implements Operator {
     }
 
     @Override
-    public Page getOutput() {
+    public Page getOutput() throws IOException {
         if (finished == false) {
             return null;
         }
@@ -218,8 +218,6 @@ public class OrdinalsGroupingOperator implements Operator {
         if (ordinalAggregators.isEmpty() == false) {
             try {
                 return mergeOrdinalsSegmentResults();
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
             } finally {
                 Releasables.close(() -> Releasables.close(ordinalAggregators.values()), ordinalAggregators::clear);
             }
@@ -228,7 +226,7 @@ public class OrdinalsGroupingOperator implements Operator {
     }
 
     @Override
-    public void finish() {
+    public void finish() throws IOException {
         finished = true;
         if (valuesAggregator != null) {
             valuesAggregator.finish();
@@ -369,7 +367,7 @@ public class OrdinalsGroupingOperator implements Operator {
             }
         }
 
-        void addInput(IntVector docs, Page page) {
+        void addInput(IntVector docs, Page page) throws IOException {
             try {
                 GroupingAggregatorFunction.AddInput[] prepared = new GroupingAggregatorFunction.AddInput[aggregators.size()];
                 for (int i = 0; i < prepared.length; i++) {
@@ -392,8 +390,6 @@ public class OrdinalsGroupingOperator implements Operator {
                         addInput.add(0, ordinals);
                     }
                 }
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
             } finally {
                 page.releaseBlocks();
             }
@@ -488,7 +484,7 @@ public class OrdinalsGroupingOperator implements Operator {
             );
         }
 
-        void addInput(Page page) {
+        void addInput(Page page) throws IOException {
             extractor.addInput(page);
             Page out = extractor.getOutput();
             if (out != null) {
@@ -496,7 +492,7 @@ public class OrdinalsGroupingOperator implements Operator {
             }
         }
 
-        void finish() {
+        void finish() throws IOException {
             aggregator.finish();
         }
 

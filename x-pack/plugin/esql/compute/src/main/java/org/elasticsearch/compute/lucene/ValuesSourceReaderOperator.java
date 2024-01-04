@@ -38,7 +38,6 @@ import org.elasticsearch.search.fetch.StoredFieldsSpec;
 import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -130,7 +129,7 @@ public class ValuesSourceReaderOperator extends AbstractPageMappingOperator {
     }
 
     @Override
-    protected Page process(Page page) {
+    protected Page process(Page page) throws IOException {
         DocVector docVector = page.<DocBlock>getBlock(docChannel).asVector();
 
         Block[] blocks = new Block[fields.length];
@@ -150,8 +149,6 @@ public class ValuesSourceReaderOperator extends AbstractPageMappingOperator {
                 }
             }
             success = true;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
         } finally {
             if (success == false) {
                 Releasables.closeExpectNoException(blocks);

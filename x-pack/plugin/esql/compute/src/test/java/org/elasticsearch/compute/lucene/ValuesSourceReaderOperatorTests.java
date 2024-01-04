@@ -288,7 +288,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         return ByteSizeValue.ofKb(1);
     }
 
-    public void testLoadAll() {
+    public void testLoadAll() throws IOException {
         DriverContext driverContext = driverContext();
         loadSimpleAndAssert(
             driverContext,
@@ -297,7 +297,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         );
     }
 
-    public void testLoadAllInOnePage() {
+    public void testLoadAllInOnePage() throws IOException {
         DriverContext driverContext = driverContext();
         loadSimpleAndAssert(
             driverContext,
@@ -310,7 +310,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         );
     }
 
-    public void testManySingleDocPages() {
+    public void testManySingleDocPages() throws IOException {
         DriverContext driverContext = driverContext();
         int numDocs = between(10, 100);
         List<Page> input = CannedSourceOperator.collectPages(simpleInput(driverContext, numDocs, between(1, numDocs), 1));
@@ -342,7 +342,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         }
     }
 
-    public void testEmpty() {
+    public void testEmpty() throws IOException {
         DriverContext driverContext = driverContext();
         loadSimpleAndAssert(
             driverContext,
@@ -351,7 +351,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         );
     }
 
-    public void testLoadAllInOnePageShuffled() {
+    public void testLoadAllInOnePageShuffled() throws IOException {
         DriverContext driverContext = driverContext();
         Page source = CannedSourceOperator.mergePages(
             CannedSourceOperator.collectPages(simpleInput(driverContext.blockFactory(), between(100, 5000)))
@@ -483,7 +483,7 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
      * Asserts that {@link ValuesSourceReaderOperator#status} claims that only
      * the expected readers are built after loading singleton pages.
      */
-    public void testLoadAllStatus() {
+    public void testLoadAllStatus() throws IOException {
         testLoadAllStatus(false);
     }
 
@@ -491,11 +491,11 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
      * Asserts that {@link ValuesSourceReaderOperator#status} claims that only
      * the expected readers are built after loading non-singleton pages.
      */
-    public void testLoadAllStatusAllInOnePage() {
+    public void testLoadAllStatusAllInOnePage() throws IOException {
         testLoadAllStatus(true);
     }
 
-    private void testLoadAllStatus(boolean allInOnePage) {
+    private void testLoadAllStatus(boolean allInOnePage) throws IOException {
         DriverContext driverContext = driverContext();
         int numDocs = between(100, 5000);
         List<Page> input = CannedSourceOperator.collectPages(simpleInput(driverContext, numDocs, commitEvery(numDocs), numDocs));
@@ -1446,18 +1446,18 @@ public class ValuesSourceReaderOperatorTests extends OperatorTestCase {
         assertDriverContext(driverContext);
     }
 
-    public void testSequentialStoredFieldsTooSmall() {
+    public void testSequentialStoredFieldsTooSmall() throws IOException {
         testSequentialStoredFields(false, between(1, ValuesSourceReaderOperator.SEQUENTIAL_BOUNDARY - 1));
     }
 
-    public void testSequentialStoredFieldsBigEnough() {
+    public void testSequentialStoredFieldsBigEnough() throws IOException {
         testSequentialStoredFields(
             true,
             between(ValuesSourceReaderOperator.SEQUENTIAL_BOUNDARY, ValuesSourceReaderOperator.SEQUENTIAL_BOUNDARY * 2)
         );
     }
 
-    private void testSequentialStoredFields(boolean sequential, int docCount) {
+    private void testSequentialStoredFields(boolean sequential, int docCount) throws IOException {
         DriverContext driverContext = driverContext();
         List<Page> source = CannedSourceOperator.collectPages(simpleInput(driverContext, docCount, docCount, docCount));
         assertThat(source, hasSize(1)); // We want one page for simpler assertions, and we want them all in one segment
