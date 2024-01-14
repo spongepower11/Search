@@ -15,6 +15,7 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.search.IndexSearcher;
 import org.elasticsearch.ElasticsearchStatusException;
+import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.aggregations.Aggregator;
@@ -102,7 +103,8 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
             subAggCollectMode,
             showTermDocCountError,
             cardinality,
-            metadata) -> {
+            metadata,
+            defaultExecutionMode) -> {
             ValuesSource valuesSource = valuesSourceConfig.getValuesSource();
             ExecutionMode execution = null;
             if (executionHint != null) {
@@ -113,7 +115,7 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
                 execution = ExecutionMode.MAP;
             }
             if (execution == null) {
-                execution = ExecutionMode.GLOBAL_ORDINALS;
+                execution = defaultExecutionMode;
             }
             final long maxOrd = execution == ExecutionMode.GLOBAL_ORDINALS ? getMaxOrd(valuesSource, context.searcher()) : -1;
             if (subAggCollectMode == null) {
@@ -168,7 +170,8 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
             subAggCollectMode,
             showTermDocCountError,
             cardinality,
-            metadata) -> {
+            metadata,
+            defaultExecutionMode) -> {
 
             if ((includeExclude != null) && (includeExclude.isRegexBased())) {
                 throw new IllegalArgumentException(
@@ -223,6 +226,7 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
     private final SubAggCollectionMode collectMode;
     private final TermsAggregator.BucketCountThresholds bucketCountThresholds;
     private final boolean showTermDocCountError;
+    private final ExecutionMode defaultExecutionMode;
 
     TermsAggregatorFactory(
         String name,
@@ -247,6 +251,7 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
         this.collectMode = collectMode;
         this.bucketCountThresholds = bucketCountThresholds;
         this.showTermDocCountError = showTermDocCountError;
+        this.defaultExecutionMode = selectDefaultExecutionMode(context);
     }
 
     @Override
@@ -325,7 +330,8 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
             collectMode,
             showTermDocCountError,
             cardinality,
-            metadata
+            metadata,
+            defaultExecutionMode
         );
     }
 
@@ -353,6 +359,26 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
         }
         // We expect to collect so many buckets that we may as well collect them all.
         return SubAggCollectionMode.DEPTH_FIRST;
+    }
+
+    /**
+     * Currently, always returns {@link ExecutionMode#GLOBAL_ORDINALS} unless the index this terms
+     * aggregation executes on is a time series index and actively accepts writes, then {@link ExecutionMode#MAP} is returned.
+     * The latter is determined based on whether current time is on or before index.time_series.end_time setting.
+     * Building global ordinals is expensive and needs to be rebuilt after each refresh. Writes trigger a refresh.
+     * If current time is before index.time_series.end_time then we expect a constant stream of writes.
+     * This would always require re-building global ordinals without reusing it for subsequent requests.
+     *
+     * @return The default execution mode to use if none has been provided via execution_hint parameter.
+     */
+    static ExecutionMode selectDefaultExecutionMode(AggregationContext context) {
+        // The current tsdb backing index may still receive active writes and
+        // if global ordinals is built then it may be invalidated on the next search request.
+        // So it isn't worth to build it. Depending on the cardinality of a field building global ordinals may be very expensive.
+        var indexSettings = context.getIndexSettings();
+        boolean isTsdbIndex = indexSettings.getMode() == IndexMode.TIME_SERIES;
+        boolean receivesWrites = isTsdbIndex && context.nowInMillis() <= indexSettings.getTimestampBounds().endTime();
+        return isTsdbIndex && receivesWrites ? ExecutionMode.MAP : ExecutionMode.GLOBAL_ORDINALS;
     }
 
     /**
@@ -389,10 +415,18 @@ public class TermsAggregatorFactory extends ValuesSourceAggregatorFactory {
                 IncludeExclude.StringFilter filter = includeExclude == null
                     ? null
                     : includeExclude.convertToStringFilter(valuesSourceConfig.format());
+
+                MapStringTermsAggregator.CollectorSource collectorSource;
+                if (valuesSourceConfig.hasOrdinals() && valuesSourceConfig.fieldType().isDimension()) {
+                    collectorSource = new MapStringTermsAggregator.SegmentOrdinalsCollectorSource(valuesSourceConfig);
+                } else {
+                    collectorSource = new MapStringTermsAggregator.ValuesSourceCollectorSource(valuesSourceConfig);
+                }
+
                 return new MapStringTermsAggregator(
                     name,
                     factories,
-                    new MapStringTermsAggregator.ValuesSourceCollectorSource(valuesSourceConfig),
+                    collectorSource,
                     a -> a.new StandardTermsResults(valuesSourceConfig.getValuesSource()),
                     order,
                     valuesSourceConfig.format(),

@@ -31,6 +31,7 @@ interface TermsAggregatorSupplier {
         Aggregator.SubAggCollectionMode subAggCollectMode,
         boolean showTermDocCountError,
         CardinalityUpperBound cardinality,
-        Map<String, Object> metadata
+        Map<String, Object> metadata,
+        TermsAggregatorFactory.ExecutionMode defaultExecutionMode
     ) throws IOException;
 }
