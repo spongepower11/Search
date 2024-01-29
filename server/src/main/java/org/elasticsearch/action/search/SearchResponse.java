@@ -80,6 +80,7 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
     private final int totalShards;
     private final int successfulShards;
     private final int skippedShards;
+    private final int failedShards;
     private final ShardSearchFailure[] shardFailures;
     private final Clusters clusters;
     private final long tookInMillis;
@@ -116,6 +117,11 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         tookInMillis = in.readVLong();
         skippedShards = in.readVInt();
         pointInTimeId = in.readOptionalString();
+        if (in.getTransportVersion().onOrAfter(TransportVersions.SEARCH_RESPONSE_FAILED_SHARD_COUNT_TRACKING)) {
+            this.failedShards = in.readVInt();
+        } else {
+            this.failedShards = shardFailures.length;
+        }
     }
 
     public SearchResponse(
@@ -160,7 +166,7 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         int successfulShards,
         int skippedShards,
         long tookInMillis,
-        ShardSearchFailure[] shardFailures,
+        ShardSearchFailure[] shardFailures,  // TODO: change to SearchShardFailures?
         Clusters clusters,
         String pointInTimeId
     ) {
@@ -183,6 +189,38 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         );
     }
 
+    /// MP TODO: new one added by me
+    public SearchResponse(
+        SearchResponseSections searchResponseSections,
+        String scrollId,
+        int totalShards,
+        int successfulShards,
+        int skippedShards,
+        long tookInMillis,
+        ShardSearchFailures shardFailures,
+        Clusters clusters,
+        String pointInTimeId
+    ) {
+        this(
+            searchResponseSections.hits,
+            searchResponseSections.aggregations,
+            searchResponseSections.suggest,
+            searchResponseSections.timedOut,
+            searchResponseSections.terminatedEarly,
+            searchResponseSections.profileResults,
+            searchResponseSections.numReducePhases,
+            scrollId,
+            totalShards,
+            successfulShards,
+            skippedShards,
+            shardFailures.getNumFailures(),
+            tookInMillis,
+            shardFailures.getFailures(),
+            clusters,
+            pointInTimeId
+        );
+    }
+
     public SearchResponse(
         SearchHits hits,
         Aggregations aggregations,
@@ -195,6 +233,45 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         int totalShards,
         int successfulShards,
         int skippedShards,
+        long tookInMillis,
+        ShardSearchFailure[] shardFailures,
+        Clusters clusters,
+        String pointInTimeId
+    ) {
+        this(
+            hits,
+            aggregations,
+            suggest,
+            timedOut,
+            terminatedEarly,
+            profileResults,
+            numReducePhases,
+            scrollId,
+            totalShards,
+            successfulShards,
+            skippedShards,
+            shardFailures == null ? 0 : shardFailures.length,
+            tookInMillis,
+            shardFailures,
+            clusters,
+            pointInTimeId
+        );
+    }
+
+    /// MP TODO: Newly added - use this from AbstractSearchAsyncAction?
+    public SearchResponse(
+        SearchHits hits,
+        Aggregations aggregations,
+        Suggest suggest,
+        boolean timedOut,
+        Boolean terminatedEarly,
+        SearchProfileResults profileResults,
+        int numReducePhases,
+        String scrollId,
+        int totalShards,
+        int successfulShards,
+        int skippedShards,
+        int failedShards,
         long tookInMillis,
         ShardSearchFailure[] shardFailures,
         Clusters clusters,
@@ -216,6 +293,7 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         this.skippedShards = skippedShards;
         this.tookInMillis = tookInMillis;
         this.shardFailures = shardFailures;
+        this.failedShards = failedShards;
         assert skippedShards <= totalShards : "skipped: " + skippedShards + " total: " + totalShards;
         assert scrollId == null || pointInTimeId == null
             : "SearchResponse can't have both scrollId [" + scrollId + "] and searchContextId [" + pointInTimeId + "]";
@@ -326,7 +404,7 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
      * The failed number of shards the search was executed on.
      */
     public int getFailedShards() {
-        return shardFailures.length;
+        return failedShards; // WAS: shardFailures.length;
     }
 
     /**
@@ -568,6 +646,10 @@ public class SearchResponse extends ActionResponse implements ChunkedToXContentO
         out.writeVLong(tookInMillis);
         out.writeVInt(skippedShards);
         out.writeOptionalString(pointInTimeId);
+
+        if (out.getTransportVersion().onOrAfter(TransportVersions.SEARCH_RESPONSE_FAILED_SHARD_COUNT_TRACKING)) {
+            out.writeVInt(failedShards);
+        }
     }
 
     @Override
