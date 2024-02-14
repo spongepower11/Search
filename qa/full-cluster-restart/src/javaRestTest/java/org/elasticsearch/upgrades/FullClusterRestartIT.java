@@ -16,6 +16,7 @@ import org.apache.http.util.EntityUtils;
 import org.elasticsearch.Build;
 import org.elasticsearch.action.admin.cluster.settings.RestClusterGetSettingsResponse;
 import org.elasticsearch.client.Request;
+import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.ResponseException;
 import org.elasticsearch.client.RestClient;
@@ -40,6 +41,7 @@ import org.elasticsearch.test.cluster.FeatureFlag;
 import org.elasticsearch.test.cluster.local.LocalClusterConfigProvider;
 import org.elasticsearch.test.cluster.local.distribution.DistributionType;
 import org.elasticsearch.test.rest.ESRestTestCase;
+import org.elasticsearch.test.rest.LoggingTaskListenerWarningHandler;
 import org.elasticsearch.test.rest.ObjectPath;
 import org.elasticsearch.test.rest.RestTestLegacyFeatures;
 import org.elasticsearch.transport.Compression;
@@ -1650,6 +1652,7 @@ public class FullClusterRestartIT extends ParameterizedFullClusterRestartTestCas
                     .endObject()
             );
             reindex.addParameter("wait_for_completion", "false");
+            reindex.setOptions(RequestOptions.DEFAULT.toBuilder().setWarningsHandler(LoggingTaskListenerWarningHandler.INSTANCE));
             Map<String, Object> response = entityAsMap(client().performRequest(reindex));
             String taskId = (String) response.get("task");
 
