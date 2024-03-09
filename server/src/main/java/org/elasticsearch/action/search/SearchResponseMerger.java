@@ -35,7 +35,6 @@ import org.elasticsearch.transport.LeakTracker;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -124,9 +123,10 @@ public final class SearchResponseMerger implements Releasable {
         int totalShards = 0;
         int skippedShards = 0;
         int successfulShards = 0;
+        int failedShards = 0;
         // the current reduce phase counts as one
         int numReducePhases = 1;
-        List<ShardSearchFailure> failures = new ArrayList<>();
+        List<ShardSearchFailure> failures = new ArrayList<>(AbstractSearchAsyncAction.MAX_FAILURES_IN_RESPONSE);
         Map<String, SearchProfileShardResult> profileResults = new HashMap<>();
         List<InternalAggregations> aggs = new ArrayList<>();
         Map<ShardIdAndClusterAlias, Integer> shards = new TreeMap<>();
@@ -140,9 +140,17 @@ public final class SearchResponseMerger implements Releasable {
             totalShards += searchResponse.getTotalShards();
             skippedShards += searchResponse.getSkippedShards();
             successfulShards += searchResponse.getSuccessfulShards();
+            failedShards += searchResponse.getFailedShards();
             numReducePhases += searchResponse.getNumReducePhases();
 
-            Collections.addAll(failures, searchResponse.getShardFailures());
+            if (failures.size() < AbstractSearchAsyncAction.MAX_FAILURES_IN_RESPONSE) {
+                for (ShardSearchFailure shardFailure : searchResponse.getShardFailures()) {
+                    failures.add(shardFailure);
+                    if (failures.size() >= AbstractSearchAsyncAction.MAX_FAILURES_IN_RESPONSE) {
+                        break;
+                    }
+                }
+            }
 
             profileResults.putAll(searchResponse.getProfileResults());
 
@@ -215,23 +223,21 @@ public final class SearchResponseMerger implements Releasable {
             // make failures ordering consistent between ordinary search and CCS by looking at the shard they come from
             Arrays.sort(shardFailures, FAILURES_COMPARATOR);
             long tookInMillis = searchTimeProvider.buildTookInMillis();
-            return new SearchResponse(
-                mergedSearchHits,
-                reducedAggs,
-                suggest,
-                topDocsStats.timedOut,
-                topDocsStats.terminatedEarly,
-                profileShardResults,
-                numReducePhases,
-                null,
-                totalShards,
-                successfulShards,
-                skippedShards,
-                tookInMillis,
-                shardFailures,
-                clusters,
-                null
-            );
+            return new SearchResponse.Builder().setHits(mergedSearchHits)
+                .setAggregations(reducedAggs)
+                .setSuggest(suggest)
+                .setTimedOut(topDocsStats.timedOut)
+                .setTerminatedEarly(topDocsStats.terminatedEarly)
+                .setProfileResults(profileShardResults)
+                .setNumReducePhases(numReducePhases)
+                .setTotalShards(totalShards)
+                .setSuccessfulShards(successfulShards)
+                .setSkippedShards(skippedShards)
+                .setFailedShards(failedShards)
+                .setTookInMillis(tookInMillis)
+                .setShardFailures(shardFailures)
+                .setClusters(clusters)
+                .build();
         } finally {
             mergedSearchHits.decRef();
         }
