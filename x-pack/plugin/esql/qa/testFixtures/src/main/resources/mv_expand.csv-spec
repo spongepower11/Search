@@ -308,6 +308,61 @@ a:long      | b:long      | c:long      | gender:keyword | str:keyword   | x:key
 ;
 
 
+// see https://github.com/elastic/elasticsearch/issues/102061
+sortMvExpand#[skip:-8.11.99]
+row a = 1 | sort a | mv_expand a;
+
+a:integer
+1
+;
+
+
+// see https://github.com/elastic/elasticsearch/issues/102061
+limitSortMvExpand#[skip:-8.11.99]
+row a = 1 | limit 1 | sort a | mv_expand a;
+
+a:integer
+1
+;
+
+
+// see https://github.com/elastic/elasticsearch/issues/102061
+limitSortMultipleMvExpand#[skip:-8.11.99]
+row a = [1, 2, 3, 4, 5], b = 2, c = 3 |  sort a | mv_expand a | mv_expand b | mv_expand c | limit 3;
+
+a:integer | b:integer | c:integer
+1         | 2         | 3
+2         | 2         | 3
+3         | 2         | 3
+;
+
+
+multipleLimitSortMultipleMvExpand#[skip:-8.11.99]
+row a = [1, 2, 3, 4, 5], b = 2, c = 3 |  sort a | mv_expand a | limit 2 | mv_expand b | mv_expand c | limit 3;
+
+a:integer | b:integer | c:integer
+1         | 2         | 3
+2         | 2         | 3
+;
+
+
+multipleLimitSortMultipleMvExpand2#[skip:-8.11.99]
+row a = [1, 2, 3, 4, 5], b = 2, c = 3 |  sort a | mv_expand a | limit 3 | mv_expand b | mv_expand c | limit 2;
+
+a:integer | b:integer | c:integer
+1         | 2         | 3
+2         | 2         | 3
+;
+
+
+//see https://github.com/elastic/elasticsearch/issues/102084
+whereMvExpand#[skip:-8.11.99]
+row  a = 1, b = -15 | where b > 3   | mv_expand b;
+
+a:integer | b:integer
+;
+
+
 //see https://github.com/elastic/elasticsearch/issues/102912
 statsDissectThatOverwritesAndMvExpand#[skip:-8.11.99]
 row  a = "a", b = 1 | stats  e = min(b) by a | dissect a "%{e}" | mv_expand e;
@@ -324,3 +379,4 @@ from employees | where emp_no == 10001 | keep * |  mv_expand first_name;
 avg_worked_seconds:long | birth_date:date          | emp_no:integer | first_name:keyword | gender:keyword | height:double | height.float:double | height.half_float:double | height.scaled_float:double | hire_date:date           | is_rehired:boolean | job_positions:keyword                 | languages:integer | languages.byte:integer | languages.long:long | languages.short:integer | last_name:keyword | salary:integer | salary_change:double | salary_change.int:integer | salary_change.keyword:keyword | salary_change.long:long | still_hired:boolean  
 268728049               | 1953-09-02T00:00:00.000Z | 10001          | Georgi             | M              | 2.03          | 2.0299999713897705  | 2.029296875              | 2.0300000000000002         | 1986-06-26T00:00:00.000Z | [false, true]      | [Accountant, Senior Python Developer] | 2                 | 2                      | 2                   | 2                       | Facello           | 57305          | 1.19                 | 1                         | 1.19                          | 1                       | true           
 ;
+

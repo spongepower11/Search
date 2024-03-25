@@ -24,10 +24,13 @@ public class MvExpand extends UnaryPlan {
 
     private List<Attribute> output;
 
-    public MvExpand(Source source, LogicalPlan child, NamedExpression target, Attribute expanded) {
+    private final int limit;
+
+    public MvExpand(Source source, LogicalPlan child, NamedExpression target, Attribute expanded, int limit) {
         super(source, child);
         this.target = target;
         this.expanded = expanded;
+        this.limit = limit;
     }
 
     public static List<Attribute> calculateOutput(List<Attribute> input, NamedExpression target, Attribute expanded) {
@@ -57,7 +60,7 @@ public class MvExpand extends UnaryPlan {
 
     @Override
     public UnaryPlan replaceChild(LogicalPlan newChild) {
-        return new MvExpand(source(), newChild, target, expanded);
+        return new MvExpand(source(), newChild, target, expanded, limit);
     }
 
     @Override
@@ -68,14 +71,18 @@ public class MvExpand extends UnaryPlan {
         return output;
     }
 
+    public int limit() {
+        return limit;
+    }
+
     @Override
     protected NodeInfo<? extends LogicalPlan> info() {
-        return NodeInfo.create(this, MvExpand::new, child(), target, expanded);
+        return NodeInfo.create(this, MvExpand::new, child(), target, expanded, limit);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), target, expanded);
+        return Objects.hash(super.hashCode(), target, expanded, limit);
     }
 
     @Override
@@ -83,6 +90,8 @@ public class MvExpand extends UnaryPlan {
         if (false == super.equals(obj)) {
             return false;
         }
-        return Objects.equals(target, ((MvExpand) obj).target) && Objects.equals(expanded, ((MvExpand) obj).expanded);
+        return Objects.equals(target, ((MvExpand) obj).target)
+            && Objects.equals(expanded, ((MvExpand) obj).expanded)
+            && limit == ((MvExpand) obj).limit;
     }
 }

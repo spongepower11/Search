@@ -359,7 +359,8 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                             null,
                             false
                         )
-                        : resolved
+                        : resolved,
+                    p.limit()
                 );
             }
             return p;
