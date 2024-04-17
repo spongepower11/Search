@@ -1,3 +1,12 @@
+x-spot-retry: &spot-retry
+  retry:
+    automatic:
+      - exit_status: "-1"
+        limit: 3
+        signal_reason: none
+      - signal_reason: agent_stop
+        limit: 3
+
 steps:
   - group: bwc
     steps: $BWC_STEPS
@@ -55,9 +64,11 @@ steps:
           image: family/elasticsearch-ubuntu-2004
           machineType: n1-standard-32
           buildDirectory: /dev/shm/bk
+          preemptible: true
         env:
           ES_RUNTIME_JAVA: "{{matrix.ES_RUNTIME_JAVA}}"
           GRADLE_TASK: "{{matrix.GRADLE_TASK}}"
+        <<: *spot-retry
       - label: "{{matrix.ES_RUNTIME_JAVA}} / {{matrix.BWC_VERSION}} / java-fips-matrix-bwc"
         command: .ci/scripts/run-gradle.sh -Dbwc.checkout.align=true -Dtests.fips.enabled=true v$$BWC_VERSION#bwcTest
         timeout_in_minutes: 300
@@ -71,9 +82,11 @@ steps:
           image: family/elasticsearch-ubuntu-2004
           machineType: n1-standard-32
           buildDirectory: /dev/shm/bk
+          preemptible: true
         env:
           ES_RUNTIME_JAVA: "{{matrix.ES_RUNTIME_JAVA}}"
           BWC_VERSION: "{{matrix.BWC_VERSION}}"
+        <<: *spot-retry
   - group: java-matrix
     steps:
       - label: "{{matrix.ES_RUNTIME_JAVA}} / {{matrix.GRADLE_TASK}} / java-matrix"
@@ -95,9 +108,11 @@ steps:
           image: family/elasticsearch-ubuntu-2004
           machineType: n1-standard-32
           buildDirectory: /dev/shm/bk
+          preemptible: true
         env:
           ES_RUNTIME_JAVA: "{{matrix.ES_RUNTIME_JAVA}}"
           GRADLE_TASK: "{{matrix.GRADLE_TASK}}"
+        <<: *spot-retry
       - label: "{{matrix.ES_RUNTIME_JAVA}} / {{matrix.BWC_VERSION}} / java-matrix-bwc"
         command: .ci/scripts/run-gradle.sh -Dbwc.checkout.align=true v$$BWC_VERSION#bwcTest
         timeout_in_minutes: 300
@@ -113,9 +128,11 @@ steps:
           image: family/elasticsearch-ubuntu-2004
           machineType: n1-standard-32
           buildDirectory: /dev/shm/bk
+          preemptible: true
         env:
           ES_RUNTIME_JAVA: "{{matrix.ES_RUNTIME_JAVA}}"
           BWC_VERSION: "{{matrix.BWC_VERSION}}"
+        <<: *spot-retry
   - label: release-tests
     command: .buildkite/scripts/release-tests.sh
     timeout_in_minutes: 360
