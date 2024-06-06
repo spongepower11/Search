@@ -62,9 +62,17 @@ public class MultiClusterSpecIT extends EsqlSpecTestCase {
 
     static ElasticsearchCluster remoteCluster = Clusters.remoteCluster();
     static ElasticsearchCluster localCluster = Clusters.localCluster(remoteCluster);
+    public static ClosingTestRule<RestClient> client = new ClosingTestRule<>() {
+        @Override
+        protected RestClient provideObject() throws IOException {
+            HttpHost[] localHosts = parseClusterHostsStatic(localCluster.getHttpAddresses()).toArray(HttpHost[]::new);
+            return doBuildClient(Settings.builder().build(), localHosts);
+        }
+    };
+    public static CsvLoader loader = new CsvLoader(client);
 
     @ClassRule
-    public static TestRule clusterRule = RuleChain.outerRule(remoteCluster).around(localCluster);
+    public static TestRule clusterRule = RuleChain.outerRule(remoteCluster).around(localCluster).around(client).around(loader);
 
     private static TestFeatureService remoteFeaturesService;
     private static RestClient remoteClusterClient;
@@ -133,9 +141,13 @@ public class MultiClusterSpecIT extends EsqlSpecTestCase {
 
     @Override
     protected RestClient buildClient(Settings settings, HttpHost[] localHosts) throws IOException {
-        RestClient localClient = super.buildClient(settings, localHosts);
-        HttpHost[] remoteHosts = parseClusterHosts(remoteCluster.getHttpAddresses()).toArray(HttpHost[]::new);
-        RestClient remoteClient = super.buildClient(settings, remoteHosts);
+        return doBuildClient(settings, localHosts);
+    }
+
+    private static RestClient doBuildClient(Settings settings, HttpHost[] localHosts) throws IOException {
+        RestClient localClient = buildClientStatic(settings, localHosts);
+        HttpHost[] remoteHosts = parseClusterHostsStatic(remoteCluster.getHttpAddresses()).toArray(HttpHost[]::new);
+        RestClient remoteClient = buildClientStatic(settings, remoteHosts);
         return twoClients(localClient, remoteClient);
     }
 

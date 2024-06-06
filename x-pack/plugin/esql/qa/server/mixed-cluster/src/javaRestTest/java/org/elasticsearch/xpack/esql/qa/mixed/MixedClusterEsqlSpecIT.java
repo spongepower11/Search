@@ -8,6 +8,8 @@
 package org.elasticsearch.xpack.esql.qa.mixed;
 
 import org.elasticsearch.Version;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.features.NodeFeature;
 import org.elasticsearch.test.cluster.ElasticsearchCluster;
 import org.elasticsearch.test.rest.TestFeatureService;
@@ -16,6 +18,8 @@ import org.elasticsearch.xpack.esql.qa.rest.EsqlSpecTestCase;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.ClassRule;
+import org.junit.rules.RuleChain;
+import org.junit.rules.TestRule;
 
 import java.io.IOException;
 
@@ -23,8 +27,17 @@ import static org.elasticsearch.xpack.esql.CsvTestUtils.isEnabled;
 import static org.elasticsearch.xpack.esql.qa.rest.EsqlSpecTestCase.Mode.ASYNC;
 
 public class MixedClusterEsqlSpecIT extends EsqlSpecTestCase {
-    @ClassRule
     public static ElasticsearchCluster cluster = Clusters.mixedVersionCluster();
+    public static ClosingTestRule<RestClient> client = new ClosingTestRule<>() {
+        @Override
+        protected RestClient provideObject() throws IOException {
+            return startClient(cluster, Settings.builder().build());
+        }
+    };
+    public static CsvLoader loader = new CsvLoader(client);
+
+    @ClassRule
+    public static TestRule clusterRule = RuleChain.outerRule(cluster).around(client).around(loader);
 
     @Override
     protected String getTestRestCluster() {
