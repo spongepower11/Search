@@ -534,7 +534,7 @@ public final class CsvTestUtils {
         }
     }
 
-    record ActualResults(
+    public record ActualResults(
         List<String> columnNames,
         List<Type> columnTypes,
         List<String> dataTypes,
