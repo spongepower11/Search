@@ -582,6 +582,7 @@ public class ClusterStateCreationUtils {
         PersistentTasksCustomMetadata.Builder tasks = PersistentTasksCustomMetadata.builder();
         PersistentTasksCustomMetadata.Assignment assignment = new PersistentTasksCustomMetadata.Assignment(
             healthNode.getId(),
+            PersistentTasksCustomMetadata.Explanation.ASSIGNMENT_SUCCESSFUL,
             randomAlphaOfLength(10)
         );
         tasks.addTask(HealthNode.TASK_NAME, HealthNode.TASK_NAME, HealthNodeTaskParams.INSTANCE, assignment);
