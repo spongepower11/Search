@@ -7,6 +7,8 @@
  */
 package org.elasticsearch.ingest.geoip;
 
+import com.maxmind.db.Metadata;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ResourceNotFoundException;
@@ -24,18 +26,21 @@ import org.elasticsearch.common.logging.HeaderWarning;
 import org.elasticsearch.core.CheckedConsumer;
 import org.elasticsearch.core.CheckedRunnable;
 import org.elasticsearch.core.IOUtils;
+import org.elasticsearch.core.Strings;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.gateway.GatewayService;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.query.TermQueryBuilder;
 import org.elasticsearch.ingest.IngestService;
 import org.elasticsearch.ingest.geoip.stats.CacheStats;
+import org.elasticsearch.ingest.geoip.stats.DatabaseInfo;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.watcher.ResourceWatcherService;
 
 import java.io.BufferedInputStream;
 import java.io.Closeable;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileAlreadyExistsException;
@@ -50,6 +55,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -282,7 +288,7 @@ public final class DatabaseNodeService implements GeoIpDatabaseProvider, Closeab
             GeoIpTaskState.Metadata metadata = e.getValue();
             DatabaseReaderLazyLoader reference = databases.get(name);
             String remoteMd5 = metadata.md5();
-            String localMd5 = reference != null ? reference.getMd5() : null;
+            String localMd5 = reference != null ? reference.getArchiveMd5() : null;
             if (Objects.equals(localMd5, remoteMd5)) {
                 logger.debug("Current reference of [{}] is up to date [{}] with was recorded in CS [{}]", name, localMd5, remoteMd5);
                 return;
@@ -329,7 +335,7 @@ public final class DatabaseNodeService implements GeoIpDatabaseProvider, Closeab
         // If thread 2 then also removes the tmp file before thread 1 attempts to create it then we're about to retrieve the same database
         // twice. This check is here to avoid this:
         DatabaseReaderLazyLoader lazyLoader = databases.get(databaseName);
-        if (lazyLoader != null && recordedMd5.equals(lazyLoader.getMd5())) {
+        if (lazyLoader != null && recordedMd5.equals(lazyLoader.getArchiveMd5())) {
             logger.debug("deleting tmp file because database [{}] has already been updated.", databaseName);
             Files.delete(databaseTmpGzFile);
             return;
@@ -492,8 +498,60 @@ public final class DatabaseNodeService implements GeoIpDatabaseProvider, Closeab
         });
     }
 
-    public Set<String> getAvailableDatabases() {
-        return Set.copyOf(databases.keySet());
+    public Set<DatabaseInfo> getAvailableDatabases() {
+        /*
+         * We return all databases that exist on the node, including manually-configured databases and downloader databases. There will
+         * not be more than one entry per database name. If more than one exist, only the active one will be returned. Downloader
+         * databases take priority over manually-configured databases.
+         */
+        Map<String, DatabaseInfo> allDatabases = new HashMap<>();
+        for (Map.Entry<String, DatabaseReaderLazyLoader> entry : configDatabases.getConfigDatabases().entrySet()) {
+            DatabaseReaderLazyLoader databaseReaderLazyLoader = entry.getValue();
+            try {
+                final Metadata metadata = databaseReaderLazyLoader.getMetadata();
+                allDatabases.put(
+                    entry.getKey(),
+                    new DatabaseInfo(
+                        entry.getKey(),
+                        "config",
+                        databaseReaderLazyLoader.getArchiveMd5(),
+                        databaseReaderLazyLoader.getMd5(),
+                        metadata.getBuildDate().getTime(),
+                        metadata.getDatabaseType()
+                    )
+                );
+            } catch (FileNotFoundException e) {
+                /*
+                 * Since there is nothing to prevent a database from being deleted while this method is running, it is possible we get an
+                 * exception here because the file no longer exists. We just log it and move on -- it's preferable to synchronization.
+                 */
+                logger.trace(Strings.format("Unable to get metadata for config database %s", entry.getKey()), e);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        for (Map.Entry<String, DatabaseReaderLazyLoader> entry : databases.entrySet()) {
+            DatabaseReaderLazyLoader databaseReaderLazyLoader = entry.getValue();
+            final Metadata metadata;
+            try {
+                metadata = databaseReaderLazyLoader.getMetadata();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            allDatabases.put(
+                entry.getKey(),
+                new DatabaseInfo(
+                    entry.getKey(),
+                    "downloader",
+                    databaseReaderLazyLoader.getArchiveMd5(),
+                    databaseReaderLazyLoader.getMd5(),
+                    metadata.getBuildDate().getTime(),
+                    metadata.getDatabaseType()
+                )
+            );
+        }
+        return Set.copyOf(allDatabases.values());
     }
 
     public Set<String> getConfigDatabases() {

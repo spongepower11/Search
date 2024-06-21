@@ -42,6 +42,8 @@ import org.elasticsearch.xcontent.XContentType;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.List;
@@ -175,19 +177,40 @@ public class GeoIpDownloader extends AllocatedPersistentTask {
             int lastSlash = endpoint.substring(8).lastIndexOf('/');
             url = (lastSlash != -1 ? endpoint.substring(0, lastSlash + 8) : endpoint) + "/" + url;
         }
-        long start = System.currentTimeMillis();
+        long relativeStart = threadPool.relativeTimeInMillis();
+        long absoluteStart = threadPool.absoluteTimeInMillis();
+        String source;
+        try {
+            source = new URL(endpoint).getHost();
+        } catch (MalformedURLException e) {
+            logger.debug("Problem converting URL into source", e);
+            source = endpoint;
+        }
+        Long buildDate = null;
+        Number updatedDateInSeconds = (Number) databaseInfo.get("updated"); // This can come in as an Integer or a Long
+        Integer updatedAgeInSeconds = (Integer) databaseInfo.get("age");
+        if (updatedDateInSeconds != null && updatedAgeInSeconds != null) {
+            buildDate = (updatedDateInSeconds.longValue() - updatedAgeInSeconds) * 1000L;
+        }
         try (InputStream is = httpClient.get(url)) {
             int firstChunk = state.contains(name) ? state.get(name).lastChunk() + 1 : 0;
-            int lastChunk = indexChunks(name, is, firstChunk, md5, start);
+            int lastChunk = indexChunks(name, is, firstChunk, md5, absoluteStart);
             if (lastChunk > firstChunk) {
-                state = state.put(name, new Metadata(start, firstChunk, lastChunk - 1, md5, start));
+                state = state.put(name, new Metadata(absoluteStart, firstChunk, lastChunk - 1, md5, absoluteStart));
                 updateTaskState();
-                stats = stats.successfulDownload(System.currentTimeMillis() - start).databasesCount(state.getDatabases().size());
+                stats = stats.successfulDownload(
+                    name,
+                    md5,
+                    absoluteStart,
+                    buildDate,
+                    source,
+                    threadPool.relativeTimeInMillis() - relativeStart
+                ).databasesCount(state.getDatabases().size());
                 logger.info("successfully downloaded geoip database [{}]", name);
                 deleteOldChunks(name, firstChunk);
             }
         } catch (Exception e) {
-            stats = stats.failedDownload();
+            stats = stats.failedDownload(name, md5, e, absoluteStart, buildDate, source, threadPool.relativeTimeInMillis() - relativeStart);
             logger.error(() -> "error downloading geoip database [" + name + "]", e);
         }
     }
@@ -278,7 +301,7 @@ public class GeoIpDownloader extends AllocatedPersistentTask {
         try {
             updateDatabases();
         } catch (Exception e) {
-            stats = stats.failedDownload();
+            stats = stats.failedDownloadDatabaseUnknown(e);
             logger.error("exception during geoip databases update", e);
         }
         try {

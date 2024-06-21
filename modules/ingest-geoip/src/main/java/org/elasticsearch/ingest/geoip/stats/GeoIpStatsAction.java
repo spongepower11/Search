@@ -25,14 +25,19 @@ import org.elasticsearch.xcontent.ToXContentObject;
 import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class GeoIpStatsAction {
 
     public static final ActionType<Response> INSTANCE = new ActionType<>("cluster:monitor/ingest/geoip/stats");
+    private static final Comparator<DatabaseInfo> DATABASE_INFO_COMPARATOR = Comparator.comparing(DatabaseInfo::name);
 
     private GeoIpStatsAction() {/* no instances */}
 
@@ -102,7 +107,7 @@ public class GeoIpStatsAction {
         public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
             GeoIpDownloaderStats stats = getDownloaderStats();
             builder.startObject();
-            builder.field("stats", stats);
+            builder.field("stats", stats, params);
             builder.startObject("nodes");
             for (Map.Entry<String, NodeResponse> e : getNodesMap().entrySet()) {
                 NodeResponse response = e.getValue();
@@ -112,9 +117,14 @@ public class GeoIpStatsAction {
                 builder.startObject(e.getKey());
                 if (response.databases.isEmpty() == false) {
                     builder.startArray("databases");
-                    for (String database : response.databases) {
+                    for (DatabaseInfo database : response.databases) {
                         builder.startObject();
-                        builder.field("name", database);
+                        builder.field("name", database.name());
+                        builder.field("source", database.source());
+                        builder.field("archive_md5", database.archiveMd5());
+                        builder.field("md5", database.md5());
+                        builder.timeField("build_date_in_millis", "build_date", database.buildDateInMillis());
+                        builder.field("type", database.type());
                         builder.endObject();
                     }
                     builder.endArray();
@@ -159,7 +169,7 @@ public class GeoIpStatsAction {
 
         private final GeoIpDownloaderStats downloaderStats;
         private final CacheStats cacheStats;
-        private final Set<String> databases;
+        private final SortedSet<DatabaseInfo> databases;
         private final Set<String> filesInTemp;
         private final Set<String> configDatabases;
 
@@ -171,7 +181,15 @@ public class GeoIpStatsAction {
             } else {
                 cacheStats = null;
             }
-            databases = in.readCollectionAsImmutableSet(StreamInput::readString);
+            databases = new TreeSet<>(DATABASE_INFO_COMPARATOR);
+            if (in.getTransportVersion().onOrAfter(TransportVersions.GEOIP_ADDITIONAL_DATABASE_DOWNLOAD_STATS)) {
+                databases.addAll(in.readCollectionAsImmutableSet(DatabaseInfo::new));
+            } else {
+                Set<String> databaseNames = in.readCollectionAsImmutableSet(StreamInput::readString);
+                databases.addAll(
+                    databaseNames.stream().map(name -> new DatabaseInfo(name, null, null, null, null, null)).collect(Collectors.toSet())
+                );
+            }
             filesInTemp = in.readCollectionAsImmutableSet(StreamInput::readString);
             configDatabases = in.getTransportVersion().onOrAfter(TransportVersions.V_8_0_0)
                 ? in.readCollectionAsImmutableSet(StreamInput::readString)
@@ -182,14 +200,15 @@ public class GeoIpStatsAction {
             DiscoveryNode node,
             GeoIpDownloaderStats downloaderStats,
             CacheStats cacheStats,
-            Set<String> databases,
+            Set<DatabaseInfo> databases,
             Set<String> filesInTemp,
             Set<String> configDatabases
         ) {
             super(node);
             this.downloaderStats = downloaderStats;
             this.cacheStats = cacheStats;
-            this.databases = Set.copyOf(databases);
+            this.databases = new TreeSet<>(DATABASE_INFO_COMPARATOR);
+            this.databases.addAll(databases);
             this.filesInTemp = Set.copyOf(filesInTemp);
             this.configDatabases = Set.copyOf(configDatabases);
         }
@@ -198,7 +217,7 @@ public class GeoIpStatsAction {
             return downloaderStats;
         }
 
-        public Set<String> getDatabases() {
+        public Set<DatabaseInfo> getDatabases() {
             return databases;
         }
 
@@ -223,7 +242,12 @@ public class GeoIpStatsAction {
                     cacheStats.writeTo(out);
                 }
             }
-            out.writeStringCollection(databases);
+            if (out.getTransportVersion().onOrAfter(TransportVersions.GEOIP_ADDITIONAL_DATABASE_DOWNLOAD_STATS)) {
+                out.writeCollection(databases);
+            } else {
+                out.writeStringCollection(databases.stream().map(DatabaseInfo::name).collect(Collectors.toSet()));
+            }
+
             out.writeStringCollection(filesInTemp);
             if (out.getTransportVersion().onOrAfter(TransportVersions.V_8_0_0)) {
                 out.writeStringCollection(configDatabases);

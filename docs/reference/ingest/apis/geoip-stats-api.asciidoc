@@ -51,11 +51,117 @@ Total milliseconds spent downloading databases.
 
 `database_count`::
 (integer)
-Current number of databases available for use.
+Current number of downloaded databases available for use.
 
 `skipped_updates`::
 (integer)
 Total number of database updates skipped.
+`downloader_attempts`::
+(array of objects)
+This provides information about each database that this {es} cluster attempted to download from a remote source.
++
+.Properties of `downloader_attempts` objects
+[%collapsible%open]
+======
+
+`name`::
+(string)
+Name of the database.
+
+`last_success`::
+(object)
+Information about the most recent successful download (if any) of this database. This information does not persist across node restarts.
++
+.Properties of `last_success`
+
+[%collapsible%open]
+=======
+`archive_md5`::
+(string)
+MD5 hash of the database archive (`.tar.gz`) file.
+
+`download_date_in_millis`::
+(long)
+The date that the database was downloaded from the remote system to a node in the {es} cluster, represented as epoch milliseconds
+
+`download_date`::
+(string)
+The date that the database was downloaded from the remote system to a node in the {es} cluster, in a human-readable format. Returned only
+if the `human` request parameter is passed.
+
+`download_time_in_millis`::
+(long)
+The amount of time in milliseconds that it took to download the database from the remote system to a node in the {es} cluster.
+
+`download_time`::
+(string)
+The amount of time in milliseconds that it took to download the database from the remote system to a node in the {es} cluster, in a
+human-readable format. Returned only if the `human` request parameter is passed.
+
+`source`::
+(string)
+The host from which the database archive was downloaded
+
+`build_date_in_millis`::
+(long)
+The build date of the database represented as epoch milliseconds
+
+`build_date`::
+(string)
+The build date of the database in a human-readable format. Returned only if the `human` request parameter is passed.
+=======
+
+`last_failure`::
+(object)
+Information about the most recent failed download (if any) of this database. This information does not persist across node restarts.
++
+.Properties of `last_failure`
+
+[%collapsible%open]
+=======
+`archive_md5`::
+(string)
+MD5 hash of the database archive (`.tar.gz`) file.
+
+`download_date_in_millis`::
+(long)
+The date that the database was attempted to be downloaded from the remote system to a node in the {es} cluster, represented as epoch
+milliseconds
+
+`download_date`::
+(string)
+The date that the database was attempted to be downloaded from the remote system to a node in the {es} cluster, in a human-readable format.
+Returned only
+if the `human` request parameter is passed.
+
+`download_time_in_millis`::
+(long)
+The amount of time in milliseconds that the failed download from the remote system to a node in the {es} cluster took.
+
+`download_time`::
+(string)
+The amount of time in milliseconds that the failed download from the remote system to a node in the {es} cluster took, in a
+human-readable format. Returned only if the `human` request parameter is passed.
+
+`source`::
+(string)
+The host from which the database archive was downloaded
+
+`build_date_in_millis`::
+(long)
+The build date of the database represented as epoch milliseconds, if known.
+
+`build_date`::
+(string)
+The build date of the database represented as epoch milliseconds, if known.. Returned only if the `human` request parameter is passed.
+
+`error_message`::
+(string)
+A message explaining why the download failed.
+
+=======
+
+======
 ====
 
 `nodes`::
@@ -67,14 +173,16 @@ Statistics for each node.
 ====
 `<node_id>`::
 (object)
-Downloaded databases for the node. The field key is the node ID.
+GeoIP databases on the node. The field key is the node ID.
 +
 .Properties of `<node_id>`
 [%collapsible%open]
 =====
 `databases`::
 (array of objects)
-Downloaded databases for the node.
+This provides information about each database that exists on this node that is eligible to be used by a geoip processor. Note that only
+one database for a given name will be shown here -- the one that will be used if a processor references a database by that name.
+Databases downloaded by the system (source `downloader`) take precedence over databases that have been manually provided (source `config`).
 +
 .Properties of `databases` objects
 [%collapsible%open]
@@ -82,6 +190,30 @@ Downloaded databases for the node.
 `name`::
 (string)
 Name of the database.
+
+`source`::
+(string)
+The source of the database, one of `downloader` (downloaded by the geoip downloader), or `config` (manually added by a user)
+
+`archive_md5`::
+(string)
+MD5 hash of the archive (`.tar.gz`) file that the database was packaged in, or null if there was no archive file.
+
+`md5`::
+(string)
+MD5 hash of the database (`.mmdb`) file.
+
+`build_date_in_millis`::
+(long)
+The build date of the database represented as epoch milliseconds
+
+`build_date`::
+(long)
+The build date of the database in a human-readable format. Returned only if the `human` request parameter is passed.
+
+`type`::
+(string)
+The type of the database.
 ======
 `cache_stats`::
 (object)

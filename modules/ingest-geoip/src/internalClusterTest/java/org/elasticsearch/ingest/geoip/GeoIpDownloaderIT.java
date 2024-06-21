@@ -29,7 +29,9 @@ import org.elasticsearch.index.query.MatchQueryBuilder;
 import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.ingest.AbstractProcessor;
 import org.elasticsearch.ingest.IngestDocument;
+import org.elasticsearch.ingest.IngestService;
 import org.elasticsearch.ingest.Processor;
+import org.elasticsearch.ingest.geoip.stats.DatabaseInfo;
 import org.elasticsearch.ingest.geoip.stats.GeoIpStatsAction;
 import org.elasticsearch.persistent.PersistentTaskParams;
 import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
@@ -160,6 +162,54 @@ public class GeoIpDownloaderIT extends AbstractGeoIpIT {
 
         putGeoIpPipeline();
         verifyUpdatedDatabase();
+
+        assertBusy(() -> {
+            /*
+             * Here we make sure that the downloader has run on the ingest nodes, and that the downloaded version of the file takes
+             * precedence over the manually-installed version of the same file.
+             */
+            GeoIpStatsAction.Response response = client().execute(GeoIpStatsAction.INSTANCE, new GeoIpStatsAction.Request()).actionGet();
+
+            assertThat(response.getNodes(), not(empty()));
+            for (GeoIpStatsAction.NodeResponse nodeResponse : response.getNodes()) {
+                assertThat(
+                    nodeResponse.getConfigDatabases(),
+                    containsInAnyOrder("GeoLite2-Country.mmdb", "GeoLite2-City.mmdb", "GeoLite2-ASN.mmdb")
+                );
+                Map<String, String> ingestNodeDatabaseNameToSourceMap = Map.of(
+                    "MyCustomGeoLite2-City.mmdb",
+                    "downloader",
+                    "GeoLite2" + "-Country.mmdb",
+                    "downloader",
+                    "GeoLite2-City.mmdb",
+                    "downloader",
+                    "GeoLite2-ASN.mmdb",
+                    "downloader"
+                );
+                Map<String, String> nonIngestNodeDatabaseNameToSourceMap = Map.of(
+                    "GeoLite2" + "-Country.mmdb",
+                    "config",
+                    "GeoLite2-City.mmdb",
+                    "config",
+                    "GeoLite2-ASN.mmdb",
+                    "config"
+                );
+                Map<String, String> responseDatabaseNameToSourceMap = nodeResponse.getDatabases()
+                    .stream()
+                    .collect(Collectors.toMap(DatabaseInfo::name, DatabaseInfo::source));
+                boolean isIngestNode = internalCluster().getInstance(IngestService.class, nodeResponse.getNode().getName())
+                    .getClusterService()
+                    .state()
+                    .nodes()
+                    .getLocalNode()
+                    .isIngestNode();
+                if (isIngestNode) {
+                    assertThat(responseDatabaseNameToSourceMap, equalTo(ingestNodeDatabaseNameToSourceMap));
+                } else {
+                    assertThat(responseDatabaseNameToSourceMap, equalTo(nonIngestNodeDatabaseNameToSourceMap));
+                }
+            }
+        });
 
         updateClusterSettings(Settings.builder().put("ingest.geoip.database_validity", TimeValue.timeValueMillis(1)));
         updateClusterSettings(
@@ -707,7 +757,18 @@ public class GeoIpDownloaderIT extends AbstractGeoIpIT {
                     nodeResponse.getConfigDatabases(),
                     containsInAnyOrder("GeoLite2-Country.mmdb", "GeoLite2-City.mmdb", "GeoLite2-ASN.mmdb")
                 );
-                assertThat(nodeResponse.getDatabases(), empty());
+                Map<String, String> databaseNameToSourceMap = Map.of(
+                    "GeoLite2-Country.mmdb",
+                    "config",
+                    "GeoLite2-City.mmdb",
+                    "config",
+                    "GeoLite2-ASN.mmdb",
+                    "config"
+                );
+                assertThat(
+                    nodeResponse.getDatabases().stream().collect(Collectors.toMap(DatabaseInfo::name, DatabaseInfo::source)),
+                    equalTo(databaseNameToSourceMap)
+                );
                 assertThat(nodeResponse.getFilesInTemp().stream().filter(s -> s.endsWith(".txt") == false).toList(), empty());
             }
         });
@@ -747,6 +808,13 @@ public class GeoIpDownloaderIT extends AbstractGeoIpIT {
         assertBusy(() -> {
             GeoIpStatsAction.Response response = client().execute(GeoIpStatsAction.INSTANCE, new GeoIpStatsAction.Request()).actionGet();
             assertThat(response.getNodes(), not(empty()));
+            if (response.hasFailures()) {
+                throw new RuntimeException(
+                    "GeoIpStatsAction reported failures, implying that the transport action failed on one or "
+                        + "more of the nodes. Turn on debug logging for org.elasticsearch.action.support.nodes.TransportNodesAction to "
+                        + "find and fix the problem."
+                );
+            }
             for (GeoIpStatsAction.NodeResponse nodeResponse : response.getNodes()) {
                 assertThat(nodeResponse.getConfigDatabases(), empty());
             }
