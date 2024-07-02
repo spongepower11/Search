@@ -417,7 +417,7 @@ public class RoleDescriptor implements ToXContentObject, Writeable {
     }
 
     public XContentBuilder toXContent(XContentBuilder builder, Params params, boolean docCreation) throws IOException {
-        return toXContent(builder, params, docCreation, false);
+        return toXContent(builder, params, docCreation, false, false);
     }
 
     /**
@@ -429,12 +429,21 @@ public class RoleDescriptor implements ToXContentObject, Writeable {
      *                    in the security index, {@code false} if the x-content being generated
      *                    is for API display purposes
      * @param includeMetadataFlattened {@code true} if the metadataFlattened field should be included in doc
+     * @param includeName {@code true} if the name field should be included in doc
      * @return x-content builder
      * @throws IOException if there was an error writing the x-content to the builder
      */
-    public XContentBuilder toXContent(XContentBuilder builder, Params params, boolean docCreation, boolean includeMetadataFlattened)
-        throws IOException {
+    public XContentBuilder toXContent(
+        XContentBuilder builder,
+        Params params,
+        boolean docCreation,
+        boolean includeMetadataFlattened,
+        boolean includeName
+    ) throws IOException {
         builder.startObject();
+        if (includeName) {
+            builder.field(Fields.NAME.getPreferredName(), name);
+        }
         builder.array(Fields.CLUSTER.getPreferredName(), clusterPrivileges);
         if (configurableClusterPrivileges.length != 0) {
             builder.field(Fields.GLOBAL.getPreferredName());
@@ -624,6 +633,15 @@ public class RoleDescriptor implements ToXContentObject, Writeable {
                             description = parser.text();
                         } else if (Fields.TYPE.match(currentFieldName, parser.getDeprecationHandler())) {
                             // don't need it
+                        } else if (Fields.NAME.match(currentFieldName, parser.getDeprecationHandler())) {
+                            String indexedName = parser.text();
+                            if (name.equals(indexedName) == false) {
+                                throw new ElasticsearchParseException(
+                                    "failed to parse role [{}]. indexed role name is different [{}]",
+                                    name,
+                                    indexedName
+                                );
+                            }
                         } else {
                             throw new ElasticsearchParseException(
                                 "failed to parse role [{}]. unexpected field [{}]",
@@ -1855,6 +1873,8 @@ public class RoleDescriptor implements ToXContentObject, Writeable {
     }
 
     public interface Fields {
+        // this field is being shared with documents of different types
+        ParseField NAME = new ParseField("name");
         ParseField CLUSTER = new ParseField("cluster");
         ParseField GLOBAL = new ParseField("global");
         ParseField INDEX = new ParseField("index");
