@@ -92,7 +92,12 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
         /**
          * Returns something to load values from this field into a {@link Block}.
          */
-        BlockLoader blockLoader(String name, boolean asUnsupportedSource, MappedFieldType.FieldExtractPreference fieldExtractPreference);
+        BlockLoader blockLoader(
+            String name,
+            String hint,
+            boolean asUnsupportedSource,
+            MappedFieldType.FieldExtractPreference fieldExtractPreference
+        );
     }
 
     private final List<ShardContext> shardContexts;
@@ -117,10 +122,19 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
             DataType dataType = attr.dataType();
             MappedFieldType.FieldExtractPreference fieldExtractPreference = PlannerUtils.extractPreference(docValuesAttrs.contains(attr));
             ElementType elementType = PlannerUtils.toElementType(dataType, fieldExtractPreference);
-            // Do not use the field attribute name, this can deviate from the field name for union types.
-            String fieldName = attr instanceof FieldAttribute fa ? fa.fieldName() : attr.name();
             boolean isUnsupported = dataType == DataType.UNSUPPORTED;
-            IntFunction<BlockLoader> loader = s -> getBlockLoaderFor(s, fieldName, isUnsupported, fieldExtractPreference, unionTypes);
+
+            final String hint;
+            final String fieldName;
+            if (attr instanceof FieldAttribute fieldAttribute && fieldAttribute.isAggregateSubAttribute()) {
+                fieldName = fieldAttribute.parent().name();
+                hint = fieldAttribute.metric();
+            } else {
+                // Do not use the field attribute name, this can deviate from the field name for union types.
+                fieldName = attr instanceof FieldAttribute fa ? fa.fieldName() : attr.name();
+                hint = null;
+            }
+            IntFunction<BlockLoader> loader = s -> getBlockLoaderFor(s, fieldName, hint, isUnsupported, fieldExtractPreference, unionTypes);
             fields.add(new ValuesSourceReaderOperator.FieldInfo(fieldName, elementType, loader));
         }
         return source.with(new ValuesSourceReaderOperator.Factory(fields, readers, docChannel), layout.build());
@@ -129,12 +143,13 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
     private BlockLoader getBlockLoaderFor(
         int shardId,
         String fieldName,
+        String hint,
         boolean isUnsupported,
         MappedFieldType.FieldExtractPreference fieldExtractPreference,
         MultiTypeEsField unionTypes
     ) {
         DefaultShardContext shardContext = (DefaultShardContext) shardContexts.get(shardId);
-        BlockLoader blockLoader = shardContext.blockLoader(fieldName, isUnsupported, fieldExtractPreference);
+        BlockLoader blockLoader = shardContext.blockLoader(fieldName, hint, isUnsupported, fieldExtractPreference);
         if (unionTypes != null) {
             String indexName = shardContext.ctx.index().getName();
             Expression conversion = unionTypes.getConversionExpressionForIndex(indexName);
@@ -239,7 +254,7 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
         // Do not use the field attribute name, this can deviate from the field name for union types.
         String fieldName = attrSource instanceof FieldAttribute fa ? fa.fieldName() : attrSource.name();
         return new OrdinalsGroupingOperator.OrdinalsGroupingOperatorFactory(
-            shardIdx -> getBlockLoaderFor(shardIdx, fieldName, isUnsupported, NONE, unionTypes),
+            shardIdx -> getBlockLoaderFor(shardIdx, fieldName, null, isUnsupported, NONE, unionTypes),
             vsShardContexts,
             groupElementType,
             docChannel,
@@ -310,6 +325,7 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
         @Override
         public BlockLoader blockLoader(
             String name,
+            String hint,
             boolean asUnsupportedSource,
             MappedFieldType.FieldExtractPreference fieldExtractPreference
         ) {
@@ -355,6 +371,11 @@ public class EsPhysicalOperationProviders extends AbstractPhysicalOperationProvi
                 @Override
                 public FieldNamesFieldMapper.FieldNamesFieldType fieldNames() {
                     return (FieldNamesFieldMapper.FieldNamesFieldType) ctx.lookup().fieldType(FieldNamesFieldMapper.NAME);
+                }
+
+                @Override
+                public String aggregationHint() {
+                    return hint;
                 }
             });
             if (loader == null) {

@@ -725,6 +725,10 @@ public abstract class MappedFieldType {
          * The {@code _field_names} field mapper, mostly used to check if it is enabled.
          */
         FieldNamesFieldMapper.FieldNamesFieldType fieldNames();
+
+        default String aggregationHint() {
+            return null;
+        }
     }
 
 }

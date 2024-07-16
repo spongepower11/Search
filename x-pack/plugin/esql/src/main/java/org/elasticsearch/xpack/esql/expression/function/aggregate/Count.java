@@ -12,6 +12,7 @@ import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.compute.aggregation.AggregatorFunctionSupplier;
 import org.elasticsearch.compute.aggregation.CountAggregatorFunction;
 import org.elasticsearch.xpack.esql.core.expression.Expression;
+import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.Literal;
 import org.elasticsearch.xpack.esql.core.expression.Nullability;
 import org.elasticsearch.xpack.esql.core.tree.NodeInfo;
@@ -125,8 +126,11 @@ public class Count extends AggregateFunction implements EnclosedAgg, ToAggregato
                 new Coalesce(s, new MvCount(s, field), List.of(new Literal(s, 0, DataType.INTEGER))),
                 new Count(s, new Literal(s, StringUtils.WILDCARD, DataType.KEYWORD))
             );
-        }
-
-        return null;
+        } else if (field instanceof FieldAttribute aggregateDoubleMetricAttribute
+            && aggregateDoubleMetricAttribute.isAggregatedAttribute()) {
+                return new Sum(source(), aggregateDoubleMetricAttribute.getAggregatedValueCountSubField());
+            } else {
+                return null;
+            }
     }
 }

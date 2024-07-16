@@ -27,6 +27,7 @@ import org.elasticsearch.index.fielddata.ScriptDocValues;
 import org.elasticsearch.index.fielddata.ScriptDocValues.DoublesSupplier;
 import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
 import org.elasticsearch.index.fielddata.SortedNumericDoubleValues;
+import org.elasticsearch.index.mapper.BlockLoader;
 import org.elasticsearch.index.mapper.CompositeSyntheticFieldLoader;
 import org.elasticsearch.index.mapper.DocumentParserContext;
 import org.elasticsearch.index.mapper.FieldMapper;
@@ -290,7 +291,7 @@ public class AggregateDoubleMetricFieldMapper extends FieldMapper {
         }
 
         public AggregateDoubleMetricFieldType(String name, Map<String, String> meta, MetricType metricType) {
-            super(name, true, false, false, TextSearchInfo.SIMPLE_MATCH_WITHOUT_TERMS, meta);
+            super(name, true, false, true, TextSearchInfo.SIMPLE_MATCH_WITHOUT_TERMS, meta);
             this.metricType = metricType;
         }
 
@@ -510,6 +511,23 @@ public class AggregateDoubleMetricFieldMapper extends FieldMapper {
         @Override
         public ValueFetcher valueFetcher(SearchExecutionContext context, String format) {
             return SourceValueFetcher.identity(name(), context, format);
+        }
+
+        @Override
+        public BlockLoader blockLoader(BlockLoaderContext blContext) {
+            if (blContext.aggregationHint() == null) {
+                // based on configured default metric:
+                return delegateFieldType().blockLoader(blContext);
+            }
+
+            // TODO: move Metric enum to mapping code in server to avoid using string hints...
+            return switch (blContext.aggregationHint()) {
+                case "max" -> delegateFieldType(Metric.max).blockLoader(blContext);
+                case "min" -> delegateFieldType(Metric.min).blockLoader(blContext);
+                case "sum" -> delegateFieldType(Metric.sum).blockLoader(blContext);
+                case "value_count" -> delegateFieldType(Metric.value_count).blockLoader(blContext);
+                default -> throw new UnsupportedOperationException("unsupported aggregation hint [" + blContext.aggregationHint() + "]");
+            };
         }
 
         /**

@@ -179,6 +179,11 @@ public class EsqlFeatures implements FeatureSpecification {
      */
     public static final NodeFeature RESOLVE_FIELDS_API = new NodeFeature("esql.resolve_fields_api");
 
+    /**
+     * Support metrics syntax
+     */
+    public static final NodeFeature METRICS_AGGREGATE_DOUBLE_METRIC_FIELD = new NodeFeature("esql.aggregate_metric_double");
+
     private Set<NodeFeature> snapshotBuildFeatures() {
         assert Build.current().isSnapshot() : Build.current();
         return Set.of(METRICS_SYNTAX);
@@ -208,7 +213,8 @@ public class EsqlFeatures implements FeatureSpecification {
             METADATA_FIELDS,
             TIMESPAN_ABBREVIATIONS,
             COUNTER_TYPES,
-            RESOLVE_FIELDS_API
+            RESOLVE_FIELDS_API,
+            METRICS_AGGREGATE_DOUBLE_METRIC_FIELD
         );
         if (Build.current().isSnapshot()) {
             return Collections.unmodifiableSet(Sets.union(features, snapshotBuildFeatures()));

@@ -102,6 +102,7 @@ import java.util.stream.Collectors;
 import static java.util.Collections.singletonList;
 import static org.elasticsearch.common.logging.LoggerMessageFormat.format;
 import static org.elasticsearch.xpack.core.enrich.EnrichPolicy.GEO_MATCH_TYPE;
+import static org.elasticsearch.xpack.esql.core.type.DataType.AGGREGATE_DOUBLE_METRIC;
 import static org.elasticsearch.xpack.esql.core.type.DataType.BOOLEAN;
 import static org.elasticsearch.xpack.esql.core.type.DataType.DATETIME;
 import static org.elasticsearch.xpack.esql.core.type.DataType.DOUBLE;
@@ -239,7 +240,16 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                     : new FieldAttribute(source, parent, name, t);
                 // primitive branch
                 if (EsqlDataTypes.isPrimitive(type)) {
-                    list.add(attribute);
+                    if (type == AGGREGATE_DOUBLE_METRIC) {
+                        var aggregatedAttribute = FieldAttribute.createAggregatedFieldAttribute(source, name, t);
+                        list.add(aggregatedAttribute.getAggregatedMinSubField());
+                        list.add(aggregatedAttribute.getAggregatedMaxSubField());
+                        list.add(aggregatedAttribute.getAggregatedSumSubField());
+                        list.add(aggregatedAttribute.getAggregatedValueCountSubField());
+                        list.add(aggregatedAttribute);
+                    } else {
+                        list.add(attribute);
+                    }
                 }
                 // allow compound object even if they are unknown (but not NESTED)
                 if (type != NESTED && fieldProperties.isEmpty() == false) {

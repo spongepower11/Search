@@ -13,6 +13,7 @@ import org.elasticsearch.compute.aggregation.SumDoubleAggregatorFunctionSupplier
 import org.elasticsearch.compute.aggregation.SumIntAggregatorFunctionSupplier;
 import org.elasticsearch.compute.aggregation.SumLongAggregatorFunctionSupplier;
 import org.elasticsearch.xpack.esql.core.expression.Expression;
+import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.Literal;
 import org.elasticsearch.xpack.esql.core.tree.NodeInfo;
 import org.elasticsearch.xpack.esql.core.tree.Source;
@@ -88,8 +89,12 @@ public class Sum extends NumericAggregate implements SurrogateExpression {
         var field = field();
 
         // SUM(const) is equivalent to MV_SUM(const)*COUNT(*).
-        return field.foldable()
-            ? new Mul(s, new MvSum(s, field), new Count(s, new Literal(s, StringUtils.WILDCARD, DataType.KEYWORD)))
-            : null;
+        if (field().foldable()) {
+            return new Mul(s, new MvSum(s, field), new Count(s, new Literal(s, StringUtils.WILDCARD, DataType.KEYWORD)));
+        } else if (field instanceof FieldAttribute fieldAttribute && fieldAttribute.isAggregatedAttribute()) {
+            return new Sum(source(), fieldAttribute.getAggregatedSumSubField());
+        } else {
+            return null;
+        }
     }
 }
