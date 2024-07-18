@@ -20,8 +20,9 @@ import org.elasticsearch.common.time.DateFormatter;
 import org.elasticsearch.common.time.DateMathParser;
 import org.elasticsearch.geometry.utils.Geohash;
 import org.elasticsearch.index.mapper.DateFieldMapper;
+import org.elasticsearch.index.mapper.DimensionHasher;
+import org.elasticsearch.index.mapper.RoutingDimensions;
 import org.elasticsearch.index.mapper.TimeSeriesIdFieldMapper;
-import org.elasticsearch.index.mapper.TimeSeriesIdFieldMapper.TimeSeriesIdBuilder;
 import org.elasticsearch.search.aggregations.bucket.geogrid.GeoTileUtils;
 
 import java.io.IOException;
@@ -696,10 +697,10 @@ public interface DocValueFormat extends NamedWriteable {
             try {
                 // NOTE: if the tsid is a map of dimension key/value pairs (as it was before introducing
                 // tsid hashing) we just decode the map and return it.
-                return TimeSeriesIdFieldMapper.decodeTsidAsMap(value);
+                return DimensionHasher.decodeAsMap(value);
             } catch (Exception e) {
                 // NOTE: otherwise the _tsid field is just a hash and we can't decode it
-                return TimeSeriesIdFieldMapper.encodeTsid(value);
+                return DimensionHasher.encode(value);
             }
         }
 
@@ -727,20 +728,20 @@ public interface DocValueFormat extends NamedWriteable {
             }
 
             Map<?, ?> m = (Map<?, ?>) value;
-            TimeSeriesIdBuilder builder = new TimeSeriesIdBuilder(null);
+            RoutingDimensions routingDimensions = new RoutingDimensions(null);
             for (Map.Entry<?, ?> entry : m.entrySet()) {
                 String f = entry.getKey().toString();
                 Object v = entry.getValue();
 
                 if (v instanceof String s) {
-                    builder.addString(f, s);
+                    routingDimensions.addString(f, s);
                 } else if (v instanceof Long l) {
-                    builder.addLong(f, l);
+                    routingDimensions.addLong(f, l);
                 } else if (v instanceof Integer i) {
-                    builder.addLong(f, i.longValue());
+                    routingDimensions.addLong(f, i.longValue());
                 } else if (v instanceof BigInteger ul) {
                     long ll = UNSIGNED_LONG_SHIFTED.parseLong(ul.toString(), false, () -> 0L);
-                    builder.addUnsignedLong(f, ll);
+                    routingDimensions.addUnsignedLong(f, ll);
                 } else {
                     throw new IllegalArgumentException("Unexpected value in tsid object [" + v + "]");
                 }
@@ -748,10 +749,54 @@ public interface DocValueFormat extends NamedWriteable {
 
             try {
                 // NOTE: we can decode the tsid only if it is not hashed (represented as a map)
-                return builder.buildLegacyTsid().toBytesRef();
+                return TimeSeriesIdFieldMapper.buildLegacyTsid(routingDimensions).toBytesRef();
             } catch (IOException e) {
                 throw new IllegalArgumentException(e);
             }
+        }
+    };
+
+    DocValueFormat LOGS_ID = new LogsIdDocValueFormat();
+
+    /**
+     * DocValues format for logs id.
+     */
+    class LogsIdDocValueFormat implements DocValueFormat {
+        private static final Base64.Decoder BASE64_DECODER = Base64.getUrlDecoder();
+
+        private LogsIdDocValueFormat() {}
+
+        @Override
+        public String getWriteableName() {
+            return "logs_id";
+        }
+
+        @Override
+        public void writeTo(StreamOutput out) {}
+
+        @Override
+        public String toString() {
+            return "logs_id";
+        }
+
+        /**
+         * @param value The logs id as a {@link BytesRef}
+         * @return the Base 64 encoded id
+         */
+        @Override
+        public Object format(BytesRef value) {
+            return DimensionHasher.encode(value);
+        }
+
+        @Override
+        public BytesRef parseBytesRef(Object value) {
+            if (value instanceof BytesRef valueAsBytesRef) {
+                return valueAsBytesRef;
+            }
+            if (value instanceof String valueAsString) {
+                return new BytesRef(BASE64_DECODER.decode(valueAsString));
+            }
+            throw new IllegalArgumentException("Cannot parse logs_id object [" + value + "]");
         }
     };
 }

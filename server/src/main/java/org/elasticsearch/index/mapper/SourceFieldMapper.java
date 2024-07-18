@@ -175,7 +175,7 @@ public class SourceFieldMapper extends MetadataFieldMapper {
         public SourceFieldMapper build() {
             if (enabled.getValue().explicit()) {
                 if (indexMode != null && indexMode.isSyntheticSourceEnabled()) {
-                    throw new MapperParsingException("Indices with with index mode [" + indexMode + "] only support synthetic source");
+                    throw new MapperParsingException("Time series indices only support synthetic source");
                 }
                 if (mode.get() != null) {
                     throw new MapperParsingException("Cannot set both [mode] and [enabled] parameters");
