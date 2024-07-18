@@ -89,6 +89,7 @@ public abstract class ElasticsearchBuildCompletePlugin implements Plugin<Project
     private List<File> resolveProjectLogs(File projectDir) {
         var projectDirFiles = getFileOperations().fileTree(projectDir);
         projectDirFiles.include("**/*.hprof");
+        projectDirFiles.include("**/build/reports/configuration-cache/**/*.html");
         projectDirFiles.include("**/build/test-results/**/*.xml");
         projectDirFiles.include("**/build/testclusters/**");
         projectDirFiles.include("**/build/testrun/*/temp/**");
@@ -138,6 +139,11 @@ public abstract class ElasticsearchBuildCompletePlugin implements Plugin<Project
             File uploadFile = parameters.getUploadFile().get();
             if (uploadFile.exists()) {
                 getFileSystemOperations().delete(spec -> spec.delete(uploadFile));
+            }
+            List<File> archiveContentFiles = parameters.getFilteredFiles().get();
+            if (archiveContentFiles.isEmpty()) {
+                System.out.println("No files to archive, skipping build artifact creation...");
+                return;
             }
             uploadFile.getParentFile().mkdirs();
             createBuildArchiveTar(parameters.getFilteredFiles().get(), parameters.getProjectDir().get(), uploadFile);
