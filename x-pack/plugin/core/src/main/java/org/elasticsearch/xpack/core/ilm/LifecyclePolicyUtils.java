@@ -8,14 +8,8 @@
 package org.elasticsearch.xpack.core.ilm;
 
 import org.elasticsearch.ElasticsearchParseException;
-import org.elasticsearch.action.support.IndicesOptions;
-import org.elasticsearch.cluster.ClusterState;
-import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
-import org.elasticsearch.cluster.metadata.ItemUsage;
-import org.elasticsearch.cluster.metadata.MetadataIndexTemplateService;
 import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.compress.NotXContentException;
-import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentHelper;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.XContentParser;
@@ -23,9 +17,7 @@ import org.elasticsearch.xcontent.XContentParserConfiguration;
 import org.elasticsearch.xcontent.XContentType;
 import org.elasticsearch.xpack.core.template.resources.TemplateResources;
 
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * A utility class used for index lifecycle policies
@@ -90,45 +82,5 @@ public class LifecyclePolicyUtils {
         } catch (Exception e) {
             throw new ElasticsearchParseException("invalid policy", e);
         }
-    }
-
-    /**
-     * Given a cluster state and ILM policy, calculate the {@link ItemUsage} of
-     * the policy (what indices, data streams, and templates use the policy)
-     */
-    public static ItemUsage calculateUsage(
-        final IndexNameExpressionResolver indexNameExpressionResolver,
-        final ClusterState state,
-        final String policyName
-    ) {
-        final List<String> indices = state.metadata()
-            .indices()
-            .values()
-            .stream()
-            .filter(indexMetadata -> policyName.equals(indexMetadata.getLifecyclePolicyName()))
-            .map(indexMetadata -> indexMetadata.getIndex().getName())
-            .collect(Collectors.toList());
-
-        final List<String> allDataStreams = indexNameExpressionResolver.dataStreamNames(
-            state,
-            IndicesOptions.LENIENT_EXPAND_OPEN_CLOSED_HIDDEN
-        );
-
-        final List<String> dataStreams = allDataStreams.stream().filter(dsName -> {
-            String indexTemplate = MetadataIndexTemplateService.findV2Template(state.metadata(), dsName, false);
-            if (indexTemplate != null) {
-                Settings settings = MetadataIndexTemplateService.resolveSettings(state.metadata(), indexTemplate);
-                return policyName.equals(LifecycleSettings.LIFECYCLE_NAME_SETTING.get(settings));
-            } else {
-                return false;
-            }
-        }).collect(Collectors.toList());
-
-        final List<String> composableTemplates = state.metadata().templatesV2().keySet().stream().filter(templateName -> {
-            Settings settings = MetadataIndexTemplateService.resolveSettings(state.metadata(), templateName);
-            return policyName.equals(LifecycleSettings.LIFECYCLE_NAME_SETTING.get(settings));
-        }).collect(Collectors.toList());
-
-        return new ItemUsage(indices, dataStreams, composableTemplates);
     }
 }
