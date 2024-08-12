@@ -10,7 +10,6 @@ package org.elasticsearch.xpack.esql;
 import org.apache.lucene.sandbox.document.HalfFloatPoint;
 import org.apache.lucene.util.BytesRef;
 import org.elasticsearch.Version;
-import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
 import org.elasticsearch.common.network.InetAddresses;
 import org.elasticsearch.common.time.DateFormatters;
@@ -38,6 +37,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.math.BigDecimal;
 import java.net.URL;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -53,8 +53,9 @@ import java.util.regex.Pattern;
 import static org.elasticsearch.common.Strings.delimitedListToStringArray;
 import static org.elasticsearch.common.logging.LoggerMessageFormat.format;
 import static org.elasticsearch.xpack.esql.EsqlTestUtils.reader;
-import static org.elasticsearch.xpack.esql.core.SpecReader.shouldSkipLine;
+import static org.elasticsearch.xpack.esql.SpecReader.shouldSkipLine;
 import static org.elasticsearch.xpack.esql.core.type.DataTypeConverter.safeToUnsignedLong;
+import static org.elasticsearch.xpack.esql.core.util.DateUtils.ISO_DATE_WITH_NANOS;
 import static org.elasticsearch.xpack.esql.core.util.DateUtils.UTC_DATE_TIME_FORMATTER;
 import static org.elasticsearch.xpack.esql.core.util.NumericUtils.asLongUnsigned;
 import static org.elasticsearch.xpack.esql.core.util.SpatialCoordinateTypes.CARTESIAN;
@@ -70,21 +71,21 @@ public final class CsvTestUtils {
 
     private CsvTestUtils() {}
 
-    public static boolean isEnabled(String testName, Version version) {
+    public static boolean isEnabled(String testName, String instructions, Version version) {
         if (testName.endsWith("-Ignore")) {
             return false;
         }
-        Tuple<Version, Version> skipRange = skipVersionRange(testName);
+        Tuple<Version, Version> skipRange = skipVersionRange(testName, instructions);
         if (skipRange != null && version.onOrAfter(skipRange.v1()) && version.onOrBefore(skipRange.v2())) {
             return false;
         }
         return true;
     }
 
-    private static final Pattern INSTRUCTION_PATTERN = Pattern.compile("#\\[(.*?)]");
+    private static final Pattern INSTRUCTION_PATTERN = Pattern.compile("\\[(.*?)]");
 
-    public static Map<String, String> extractInstructions(String testName) {
-        Matcher matcher = INSTRUCTION_PATTERN.matcher(testName);
+    public static Map<String, String> parseInstructions(String instructions) {
+        Matcher matcher = INSTRUCTION_PATTERN.matcher(instructions);
         Map<String, String> pairs = new HashMap<>();
         if (matcher.find()) {
             String[] groups = matcher.group(1).split(",");
@@ -99,8 +100,8 @@ public final class CsvTestUtils {
         return pairs;
     }
 
-    public static Tuple<Version, Version> skipVersionRange(String testName) {
-        Map<String, String> pairs = extractInstructions(testName);
+    public static Tuple<Version, Version> skipVersionRange(String testName, String instructions) {
+        Map<String, String> pairs = parseInstructions(instructions);
         String versionRange = pairs.get("skip");
         if (versionRange != null) {
             String[] skipVersions = versionRange.split("-", Integer.MAX_VALUE);
@@ -332,15 +333,15 @@ public final class CsvTestUtils {
             columnTypes = new ArrayList<>(header.length);
 
             for (String c : header) {
-                String[] nameWithType = Strings.split(c, ":");
-                if (nameWithType == null || nameWithType.length != 2) {
+                String[] nameWithType = escapeTypecast(c).split(":");
+                if (nameWithType.length != 2) {
                     throw new IllegalArgumentException("Invalid CSV header " + c);
                 }
-                String typeName = nameWithType[1].trim();
-                if (typeName.length() == 0) {
-                    throw new IllegalArgumentException("A type is always expected in the csv file; found " + nameWithType);
+                String typeName = unescapeTypecast(nameWithType[1]).trim();
+                if (typeName.isEmpty()) {
+                    throw new IllegalArgumentException("A type is always expected in the csv file; found " + Arrays.toString(nameWithType));
                 }
-                String name = nameWithType[0].trim();
+                String name = unescapeTypecast(nameWithType[0]).trim();
                 columnNames.add(name);
                 Type type = Type.asType(typeName);
                 if (type == null) {
@@ -398,6 +399,16 @@ public final class CsvTestUtils {
         }
     }
 
+    private static final String TYPECAST_SPACER = "__TYPECAST__";
+
+    private static String escapeTypecast(String typecast) {
+        return typecast.replace("::", TYPECAST_SPACER);
+    }
+
+    private static String unescapeTypecast(String typecast) {
+        return typecast.replace(TYPECAST_SPACER, "::");
+    }
+
     public enum Type {
         INTEGER(Integer::parseInt, Integer.class),
         LONG(Long::parseLong, Long.class),
@@ -435,6 +446,13 @@ public final class CsvTestUtils {
             (l, r) -> l instanceof Long maybeIP ? maybeIP.compareTo((Long) r) : l.toString().compareTo(r.toString()),
             Long.class
         ),
+        DATE_NANOS(x -> {
+            if (x == null) {
+                return null;
+            }
+            Instant parsed = DateFormatters.from(ISO_DATE_WITH_NANOS.parse(x)).toInstant();
+            return parsed.getEpochSecond() * 1_000_000_000 + parsed.getNano();
+        }, (l, r) -> l instanceof Long maybeIP ? maybeIP.compareTo((Long) r) : l.toString().compareTo(r.toString()), Long.class),
         BOOLEAN(Booleans::parseBoolean, Boolean.class),
         GEO_POINT(x -> x == null ? null : GEO.wktToWkb(x), BytesRef.class),
         CARTESIAN_POINT(x -> x == null ? null : CARTESIAN.wktToWkb(x), BytesRef.class),

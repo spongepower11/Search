@@ -41,19 +41,14 @@ import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.Literal;
 import org.elasticsearch.xpack.esql.core.expression.MetadataAttribute;
 import org.elasticsearch.xpack.esql.core.expression.NamedExpression;
-import org.elasticsearch.xpack.esql.core.expression.Order;
-import org.elasticsearch.xpack.esql.core.expression.function.FunctionRegistry;
 import org.elasticsearch.xpack.esql.core.expression.predicate.logical.And;
 import org.elasticsearch.xpack.esql.core.expression.predicate.logical.Not;
+import org.elasticsearch.xpack.esql.core.expression.predicate.logical.Or;
 import org.elasticsearch.xpack.esql.core.expression.predicate.operator.comparison.BinaryComparison;
-import org.elasticsearch.xpack.esql.core.index.EsIndex;
-import org.elasticsearch.xpack.esql.core.index.IndexResolution;
-import org.elasticsearch.xpack.esql.core.plan.logical.Filter;
-import org.elasticsearch.xpack.esql.core.plan.logical.Limit;
-import org.elasticsearch.xpack.esql.core.plan.logical.LogicalPlan;
 import org.elasticsearch.xpack.esql.core.type.DataType;
 import org.elasticsearch.xpack.esql.core.type.EsField;
 import org.elasticsearch.xpack.esql.enrich.ResolvedEnrichPolicy;
+import org.elasticsearch.xpack.esql.expression.Order;
 import org.elasticsearch.xpack.esql.expression.function.EsqlFunctionRegistry;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.AggregateFunction;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.Count;
@@ -73,12 +68,17 @@ import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.Gre
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.GreaterThanOrEqual;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.LessThan;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.LessThanOrEqual;
+import org.elasticsearch.xpack.esql.index.EsIndex;
+import org.elasticsearch.xpack.esql.index.IndexResolution;
 import org.elasticsearch.xpack.esql.parser.EsqlParser;
 import org.elasticsearch.xpack.esql.parser.ParsingException;
 import org.elasticsearch.xpack.esql.plan.logical.Aggregate;
 import org.elasticsearch.xpack.esql.plan.logical.Enrich;
 import org.elasticsearch.xpack.esql.plan.logical.EsRelation;
 import org.elasticsearch.xpack.esql.plan.logical.Eval;
+import org.elasticsearch.xpack.esql.plan.logical.Filter;
+import org.elasticsearch.xpack.esql.plan.logical.Limit;
+import org.elasticsearch.xpack.esql.plan.logical.LogicalPlan;
 import org.elasticsearch.xpack.esql.plan.logical.Project;
 import org.elasticsearch.xpack.esql.plan.logical.TopN;
 import org.elasticsearch.xpack.esql.plan.logical.join.Join;
@@ -110,7 +110,7 @@ import org.elasticsearch.xpack.esql.planner.PlannerUtils;
 import org.elasticsearch.xpack.esql.plugin.QueryPragmas;
 import org.elasticsearch.xpack.esql.querydsl.query.SingleValueQuery;
 import org.elasticsearch.xpack.esql.querydsl.query.SpatialRelatesQuery;
-import org.elasticsearch.xpack.esql.session.EsqlConfiguration;
+import org.elasticsearch.xpack.esql.session.Configuration;
 import org.elasticsearch.xpack.esql.stats.SearchStats;
 import org.junit.Before;
 
@@ -139,7 +139,6 @@ import static org.elasticsearch.xpack.esql.SerializationTestUtils.assertSerializ
 import static org.elasticsearch.xpack.esql.analysis.AnalyzerTestUtils.analyze;
 import static org.elasticsearch.xpack.esql.core.expression.Expressions.name;
 import static org.elasticsearch.xpack.esql.core.expression.Expressions.names;
-import static org.elasticsearch.xpack.esql.core.expression.Order.OrderDirection.ASC;
 import static org.elasticsearch.xpack.esql.core.expression.function.scalar.FunctionTestUtils.l;
 import static org.elasticsearch.xpack.esql.core.type.DataType.CARTESIAN_POINT;
 import static org.elasticsearch.xpack.esql.core.type.DataType.GEO_POINT;
@@ -180,7 +179,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
     private TestDataSource countriesBbox;
     private TestDataSource countriesBboxWeb;
 
-    private final EsqlConfiguration config;
+    private final Configuration config;
 
     private record TestDataSource(Map<String, EsField> mapping, EsIndex index, Analyzer analyzer) {}
 
@@ -196,7 +195,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
         return asList(new Tuple<>("default", Map.of()));
     }
 
-    public PhysicalPlanOptimizerTests(String name, EsqlConfiguration config) {
+    public PhysicalPlanOptimizerTests(String name, Configuration config) {
         this.config = config;
     }
 
@@ -205,7 +204,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
         parser = new EsqlParser();
         logicalOptimizer = new LogicalPlanOptimizer(new LogicalOptimizerContext(EsqlTestUtils.TEST_CFG));
         physicalPlanOptimizer = new PhysicalPlanOptimizer(new PhysicalOptimizerContext(config));
-        FunctionRegistry functionRegistry = new EsqlFunctionRegistry();
+        EsqlFunctionRegistry functionRegistry = new EsqlFunctionRegistry();
         mapper = new Mapper(functionRegistry);
         var enrichResolution = setupEnrichResolution();
         // Most tests used data from the test index, so we load it here, and use it in the plan() function.
@@ -237,7 +236,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
     TestDataSource makeTestDataSource(
         String indexName,
         String mappingFileName,
-        FunctionRegistry functionRegistry,
+        EsqlFunctionRegistry functionRegistry,
         EnrichResolution enrichResolution
     ) {
         Map<String, EsField> mapping = loadMapping(mappingFileName);
@@ -522,7 +521,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
         assertThat(source.limit(), is(l(10)));
         assertThat(source.sorts().size(), is(1));
         FieldSort order = source.sorts().get(0);
-        assertThat(order.direction(), is(ASC));
+        assertThat(order.direction(), is(Order.OrderDirection.ASC));
         assertThat(name(order.field()), is("last_name"));
         // last name is keyword, salary, emp_no, doc id, segment, forwards and backwards doc id maps are all ints
         int estimatedSize = KEYWORD_EST + Integer.BYTES * 6;
@@ -1192,7 +1191,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
         assertThat(source.limit(), is(l(1)));
         assertThat(source.sorts().size(), is(1));
         FieldSort order = source.sorts().get(0);
-        assertThat(order.direction(), is(ASC));
+        assertThat(order.direction(), is(Order.OrderDirection.ASC));
         assertThat(name(order.field()), is("salary"));
         // ints for doc id, segment id, forwards and backwards mapping, languages, and salary
         assertThat(source.estimatedRowSize(), equalTo(Integer.BYTES * 6));
@@ -3575,6 +3574,100 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
         assertShapeQueryRange(shapeQueryBuilders, 400000.0, 600000.0);
     }
 
+    public void testPushSpatialDistanceDisjointBandsToSource() {
+        var query = """
+            FROM airports
+            | WHERE (ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) <= 600000
+                 AND ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) >= 400000)
+               OR
+                    (ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) <= 300000
+                 AND ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) >= 200000)
+            """;
+        var plan = this.physicalPlan(query, airports);
+        var limit = as(plan, LimitExec.class);
+        var exchange = as(limit.child(), ExchangeExec.class);
+        var fragment = as(exchange.child(), FragmentExec.class);
+        var limit2 = as(fragment.fragment(), Limit.class);
+        var filter = as(limit2.child(), Filter.class);
+        var or = as(filter.condition(), Or.class);
+        assertThat("OR has two predicates", or.arguments().size(), equalTo(2));
+        for (Expression expression : or.arguments()) {
+            var and = as(expression, And.class);
+            for (Expression exp : and.arguments()) {
+                var comp = as(exp, EsqlBinaryComparison.class);
+                var expectedComp = comp.equals(and.left()) ? LessThanOrEqual.class : GreaterThanOrEqual.class;
+                assertThat("filter contains expected binary comparison", comp, instanceOf(expectedComp));
+                assertThat("filter contains ST_DISTANCE", comp.left(), instanceOf(StDistance.class));
+            }
+        }
+
+        var optimized = optimizedPlan(plan);
+        var topLimit = as(optimized, LimitExec.class);
+        exchange = as(topLimit.child(), ExchangeExec.class);
+        var project = as(exchange.child(), ProjectExec.class);
+        var fieldExtract = as(project.child(), FieldExtractExec.class);
+        var source = source(fieldExtract.child());
+        var bool = as(source.query(), BoolQueryBuilder.class);
+        var disjuntiveQueryBuilders = bool.should().stream().filter(p -> p instanceof BoolQueryBuilder).toList();
+        assertThat("Expected two disjunctive query builders", disjuntiveQueryBuilders.size(), equalTo(2));
+        for (int i = 0; i < disjuntiveQueryBuilders.size(); i++) {
+            var subRangeBool = as(disjuntiveQueryBuilders.get(i), BoolQueryBuilder.class);
+            var shapeQueryBuilders = subRangeBool.must().stream().filter(p -> p instanceof SpatialRelatesQuery.ShapeQueryBuilder).toList();
+            assertShapeQueryRange(shapeQueryBuilders, i == 0 ? 400000.0 : 200000.0, i == 0 ? 600000.0 : 300000.0);
+        }
+    }
+
+    public void testPushSpatialDistanceComplexPredicateToSource() {
+        var query = """
+            FROM airports
+            | WHERE ((ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) <= 600000
+                  AND ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) >= 400000
+                  AND NOT (ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) <= 500000
+                       AND ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) >= 430000))
+                  OR (ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) <= 300000
+                           AND ST_DISTANCE(location, TO_GEOPOINT("POINT(12.565 55.673)")) >= 200000))
+                AND NOT abbrev == "PLQ"
+                AND scalerank < 6
+            """;
+        var plan = this.physicalPlan(query, airports);
+        var limit = as(plan, LimitExec.class);
+        var exchange = as(limit.child(), ExchangeExec.class);
+        var fragment = as(exchange.child(), FragmentExec.class);
+        var limit2 = as(fragment.fragment(), Limit.class);
+        var filter = as(limit2.child(), Filter.class);
+        var outerAnd = as(filter.condition(), And.class);
+        var outerLeft = as(outerAnd.left(), And.class);
+        as(outerLeft.right(), Not.class);
+        as(outerAnd.right(), LessThan.class);
+        var or = as(outerLeft.left(), Or.class);
+        var innerAnd1 = as(or.left(), And.class);
+        var innerAnd2 = as(or.right(), And.class);
+        for (Expression exp : innerAnd2.arguments()) {
+            var comp = as(exp, EsqlBinaryComparison.class);
+            var expectedComp = comp.equals(innerAnd2.left()) ? LessThanOrEqual.class : GreaterThanOrEqual.class;
+            assertThat("filter contains expected binary comparison", comp, instanceOf(expectedComp));
+            assertThat("filter contains ST_DISTANCE", comp.left(), instanceOf(StDistance.class));
+        }
+
+        var optimized = optimizedPlan(plan);
+        var topLimit = as(optimized, LimitExec.class);
+        exchange = as(topLimit.child(), ExchangeExec.class);
+        var project = as(exchange.child(), ProjectExec.class);
+        var fieldExtract = as(project.child(), FieldExtractExec.class);
+        var source = source(fieldExtract.child());
+        var bool = as(source.query(), BoolQueryBuilder.class);
+        assertThat("Expected boolean query of three MUST clauses", bool.must().size(), equalTo(2));
+        assertThat("Expected boolean query of one FILTER clause", bool.filter().size(), equalTo(1));
+        var boolDisjuntive = as(bool.filter().get(0), BoolQueryBuilder.class);
+        var disjuntiveQueryBuilders = boolDisjuntive.should().stream().filter(p -> p instanceof BoolQueryBuilder).toList();
+        assertThat("Expected two disjunctive query builders", disjuntiveQueryBuilders.size(), equalTo(2));
+        for (int i = 0; i < disjuntiveQueryBuilders.size(); i++) {
+            var subRangeBool = as(disjuntiveQueryBuilders.get(i), BoolQueryBuilder.class);
+            var shapeQueryBuilders = subRangeBool.must().stream().filter(p -> p instanceof SpatialRelatesQuery.ShapeQueryBuilder).toList();
+            assertShapeQueryRange(shapeQueryBuilders, i == 0 ? 400000.0 : 200000.0, i == 0 ? 600000.0 : 300000.0);
+        }
+    }
+
     private void assertShapeQueryRange(List<QueryBuilder> shapeQueryBuilders, double min, double max) {
         assertThat("Expected two shape query builders", shapeQueryBuilders.size(), equalTo(2));
         var relationStats = new HashMap<ShapeRelation, Integer>();
@@ -4455,7 +4548,7 @@ public class PhysicalPlanOptimizerTests extends ESTestCase {
 
     private void assertFieldExtractionWithDocValues(FieldExtractExec extract, DataType dataType, String... fieldNames) {
         extract.attributesToExtract().forEach(attr -> {
-            String name = attr.qualifiedName();
+            String name = attr.name();
             if (asList(fieldNames).contains(name)) {
                 assertThat("Expected field '" + name + "' to use doc-values", extract.hasDocValuesAttribute(attr), equalTo(true));
                 assertThat("Expected field '" + name + "' to have data type " + dataType, attr.dataType(), equalTo(dataType));

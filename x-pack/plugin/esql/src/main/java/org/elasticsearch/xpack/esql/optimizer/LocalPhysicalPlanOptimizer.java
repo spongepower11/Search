@@ -17,7 +17,7 @@ import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.xpack.esql.VerificationException;
-import org.elasticsearch.xpack.esql.core.common.Failure;
+import org.elasticsearch.xpack.esql.common.Failure;
 import org.elasticsearch.xpack.esql.core.expression.Alias;
 import org.elasticsearch.xpack.esql.core.expression.Attribute;
 import org.elasticsearch.xpack.esql.core.expression.AttributeMap;
@@ -27,10 +27,13 @@ import org.elasticsearch.xpack.esql.core.expression.FieldAttribute;
 import org.elasticsearch.xpack.esql.core.expression.Literal;
 import org.elasticsearch.xpack.esql.core.expression.MetadataAttribute;
 import org.elasticsearch.xpack.esql.core.expression.NamedExpression;
-import org.elasticsearch.xpack.esql.core.expression.Order;
 import org.elasticsearch.xpack.esql.core.expression.TypedAttribute;
 import org.elasticsearch.xpack.esql.core.expression.function.scalar.UnaryScalarFunction;
 import org.elasticsearch.xpack.esql.core.expression.predicate.Predicates;
+import org.elasticsearch.xpack.esql.core.expression.predicate.Range;
+import org.elasticsearch.xpack.esql.core.expression.predicate.fulltext.MatchQueryPredicate;
+import org.elasticsearch.xpack.esql.core.expression.predicate.fulltext.StringQueryPredicate;
+import org.elasticsearch.xpack.esql.core.expression.predicate.logical.And;
 import org.elasticsearch.xpack.esql.core.expression.predicate.logical.BinaryLogic;
 import org.elasticsearch.xpack.esql.core.expression.predicate.logical.Not;
 import org.elasticsearch.xpack.esql.core.expression.predicate.nulls.IsNotNull;
@@ -43,9 +46,11 @@ import org.elasticsearch.xpack.esql.core.rule.ParameterizedRuleExecutor;
 import org.elasticsearch.xpack.esql.core.rule.Rule;
 import org.elasticsearch.xpack.esql.core.tree.Source;
 import org.elasticsearch.xpack.esql.core.type.DataType;
+import org.elasticsearch.xpack.esql.core.util.CollectionUtils;
 import org.elasticsearch.xpack.esql.core.util.Queries;
 import org.elasticsearch.xpack.esql.core.util.Queries.Clause;
 import org.elasticsearch.xpack.esql.core.util.StringUtils;
+import org.elasticsearch.xpack.esql.expression.Order;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.Count;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.SpatialAggregateFunction;
 import org.elasticsearch.xpack.esql.expression.function.scalar.ip.CIDRMatch;
@@ -56,8 +61,12 @@ import org.elasticsearch.xpack.esql.expression.function.scalar.spatial.SpatialRe
 import org.elasticsearch.xpack.esql.expression.function.scalar.spatial.StDistance;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.Equals;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.EsqlBinaryComparison;
+import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.GreaterThan;
+import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.GreaterThanOrEqual;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.In;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.InsensitiveBinaryComparison;
+import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.LessThan;
+import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.LessThanOrEqual;
 import org.elasticsearch.xpack.esql.expression.predicate.operator.comparison.NotEquals;
 import org.elasticsearch.xpack.esql.optimizer.PhysicalOptimizerRules.OptimizerRule;
 import org.elasticsearch.xpack.esql.plan.physical.AggregateExec;
@@ -91,9 +100,13 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.elasticsearch.xpack.esql.core.expression.predicate.Predicates.splitAnd;
-import static org.elasticsearch.xpack.esql.core.optimizer.OptimizerRules.TransformDirection.UP;
+import static org.elasticsearch.xpack.esql.optimizer.rules.OptimizerRules.TransformDirection.UP;
 import static org.elasticsearch.xpack.esql.plan.physical.EsStatsQueryExec.StatsType.COUNT;
 
+/**
+ * Manages field extraction and pushing parts of the query into Lucene. (Query elements that are not pushed into Lucene are executed via
+ * the compute engine)
+ */
 public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<PhysicalPlan, LocalPhysicalOptimizerContext> {
     public static final EsqlTranslatorHandler TRANSLATOR_HANDLER = new EsqlTranslatorHandler();
 
@@ -245,8 +258,10 @@ public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<Physic
                 for (Expression exp : splitAnd(filterExec.condition())) {
                     (canPushToSource(exp, x -> hasIdenticalDelegate(x, ctx.searchStats())) ? pushable : nonPushable).add(exp);
                 }
-                if (pushable.size() > 0) { // update the executable with pushable conditions
-                    Query queryDSL = TRANSLATOR_HANDLER.asQuery(Predicates.combineAnd(pushable));
+                // Combine GT, GTE, LT and LTE in pushable to Range if possible
+                List<Expression> newPushable = combineEligiblePushableToRange(pushable);
+                if (newPushable.size() > 0) { // update the executable with pushable conditions
+                    Query queryDSL = TRANSLATOR_HANDLER.asQuery(Predicates.combineAnd(newPushable));
                     QueryBuilder planQuery = queryDSL.asBuilder();
                     var query = Queries.combine(Clause.FILTER, asList(queryExec.query(), planQuery));
                     queryExec = new EsQueryExec(
@@ -268,6 +283,79 @@ public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<Physic
             }
 
             return plan;
+        }
+
+        private static List<Expression> combineEligiblePushableToRange(List<Expression> pushable) {
+            List<EsqlBinaryComparison> bcs = new ArrayList<>();
+            List<Range> ranges = new ArrayList<>();
+            List<Expression> others = new ArrayList<>();
+            boolean changed = false;
+
+            pushable.forEach(e -> {
+                if (e instanceof GreaterThan || e instanceof GreaterThanOrEqual || e instanceof LessThan || e instanceof LessThanOrEqual) {
+                    if (((EsqlBinaryComparison) e).right().foldable()) {
+                        bcs.add((EsqlBinaryComparison) e);
+                    } else {
+                        others.add(e);
+                    }
+                } else {
+                    others.add(e);
+                }
+            });
+
+            for (int i = 0, step = 1; i < bcs.size() - 1; i += step, step = 1) {
+                BinaryComparison main = bcs.get(i);
+                for (int j = i + 1; j < bcs.size(); j++) {
+                    BinaryComparison other = bcs.get(j);
+                    if (main.left().semanticEquals(other.left())) {
+                        // >/>= AND </<=
+                        if ((main instanceof GreaterThan || main instanceof GreaterThanOrEqual)
+                            && (other instanceof LessThan || other instanceof LessThanOrEqual)) {
+                            bcs.remove(j);
+                            bcs.remove(i);
+
+                            ranges.add(
+                                new Range(
+                                    main.source(),
+                                    main.left(),
+                                    main.right(),
+                                    main instanceof GreaterThanOrEqual,
+                                    other.right(),
+                                    other instanceof LessThanOrEqual,
+                                    main.zoneId()
+                                )
+                            );
+
+                            changed = true;
+                            step = 0;
+                            break;
+                        }
+                        // </<= AND >/>=
+                        else if ((other instanceof GreaterThan || other instanceof GreaterThanOrEqual)
+                            && (main instanceof LessThan || main instanceof LessThanOrEqual)) {
+                                bcs.remove(j);
+                                bcs.remove(i);
+
+                                ranges.add(
+                                    new Range(
+                                        main.source(),
+                                        main.left(),
+                                        other.right(),
+                                        other instanceof GreaterThanOrEqual,
+                                        main.right(),
+                                        main instanceof LessThanOrEqual,
+                                        main.zoneId()
+                                    )
+                                );
+
+                                changed = true;
+                                step = 0;
+                                break;
+                            }
+                    }
+                }
+            }
+            return changed ? CollectionUtils.combine(others, bcs, ranges) : pushable;
         }
 
         public static boolean canPushToSource(Expression exp, Predicate<FieldAttribute> hasIdenticalDelegate) {
@@ -295,6 +383,10 @@ public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<Physic
                     && Expressions.foldable(cidrMatch.matches());
             } else if (exp instanceof SpatialRelatesFunction bc) {
                 return bc.canPushToSource(LocalPhysicalPlanOptimizer::isAggregatable);
+            } else if (exp instanceof MatchQueryPredicate mqp) {
+                return mqp.field() instanceof FieldAttribute && DataType.isString(mqp.field().dataType());
+            } else if (exp instanceof StringQueryPredicate) {
+                return true;
             }
             return false;
         }
@@ -599,46 +691,43 @@ public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<Physic
         protected PhysicalPlan rule(FilterExec filterExec, LocalPhysicalOptimizerContext ctx) {
             PhysicalPlan plan = filterExec;
             if (filterExec.child() instanceof EsQueryExec) {
-                List<Expression> rewritten = new ArrayList<>();
-                List<Expression> notRewritten = new ArrayList<>();
-                for (Expression exp : splitAnd(filterExec.condition())) {
-                    boolean didRewrite = false;
-                    if (exp instanceof EsqlBinaryComparison comparison) {
-                        ComparisonType comparisonType = ComparisonType.from(comparison.getFunctionType());
-                        if (comparison.left() instanceof StDistance dist && comparison.right().foldable()) {
-                            didRewrite = rewriteComparison(rewritten, dist, comparison.right(), comparisonType);
-                        } else if (comparison.right() instanceof StDistance dist && comparison.left().foldable()) {
-                            didRewrite = rewriteComparison(rewritten, dist, comparison.left(), ComparisonType.invert(comparisonType));
-                        }
+                // Find and rewrite any binary comparisons that involve a distance function and a literal
+                var rewritten = filterExec.condition().transformDown(EsqlBinaryComparison.class, comparison -> {
+                    ComparisonType comparisonType = ComparisonType.from(comparison.getFunctionType());
+                    if (comparison.left() instanceof StDistance dist && comparison.right().foldable()) {
+                        return rewriteComparison(comparison, dist, comparison.right(), comparisonType);
+                    } else if (comparison.right() instanceof StDistance dist && comparison.left().foldable()) {
+                        return rewriteComparison(comparison, dist, comparison.left(), ComparisonType.invert(comparisonType));
                     }
-                    if (didRewrite == false) {
-                        notRewritten.add(exp);
-                    }
-                }
-                if (rewritten.isEmpty() == false) {
-                    rewritten.addAll(notRewritten);
-                    plan = new FilterExec(filterExec.source(), filterExec.child(), Predicates.combineAnd(rewritten));
+                    return comparison;
+                });
+                if (rewritten.equals(filterExec.condition()) == false) {
+                    plan = new FilterExec(filterExec.source(), filterExec.child(), rewritten);
                 }
             }
 
             return plan;
         }
 
-        private boolean rewriteComparison(List<Expression> rewritten, StDistance dist, Expression literal, ComparisonType comparisonType) {
+        private Expression rewriteComparison(
+            EsqlBinaryComparison comparison,
+            StDistance dist,
+            Expression literal,
+            ComparisonType comparisonType
+        ) {
             Object value = literal.fold();
             if (value instanceof Number number) {
                 if (dist.right().foldable()) {
-                    return rewriteDistanceFilter(rewritten, dist.source(), dist.left(), dist.right(), number, comparisonType);
+                    return rewriteDistanceFilter(comparison, dist.left(), dist.right(), number, comparisonType);
                 } else if (dist.left().foldable()) {
-                    return rewriteDistanceFilter(rewritten, dist.source(), dist.right(), dist.left(), number, comparisonType);
+                    return rewriteDistanceFilter(comparison, dist.right(), dist.left(), number, comparisonType);
                 }
             }
-            return false;
+            return comparison;
         }
 
-        private boolean rewriteDistanceFilter(
-            List<Expression> rewritten,
-            Source source,
+        private Expression rewriteDistanceFilter(
+            EsqlBinaryComparison comparison,
             Expression spatialExp,
             Expression literalExp,
             Number number,
@@ -647,19 +736,22 @@ public class LocalPhysicalPlanOptimizer extends ParameterizedRuleExecutor<Physic
             Geometry geometry = SpatialRelatesUtils.makeGeometryFromLiteral(literalExp);
             if (geometry instanceof Point point) {
                 double distance = number.doubleValue();
+                Source source = comparison.source();
                 if (comparisonType.lt) {
                     distance = comparisonType.eq ? distance : Math.nextDown(distance);
-                    rewritten.add(new SpatialIntersects(source, spatialExp, makeCircleLiteral(point, distance, literalExp)));
+                    return new SpatialIntersects(source, spatialExp, makeCircleLiteral(point, distance, literalExp));
                 } else if (comparisonType.gt) {
                     distance = comparisonType.eq ? distance : Math.nextUp(distance);
-                    rewritten.add(new SpatialDisjoint(source, spatialExp, makeCircleLiteral(point, distance, literalExp)));
+                    return new SpatialDisjoint(source, spatialExp, makeCircleLiteral(point, distance, literalExp));
                 } else if (comparisonType.eq) {
-                    rewritten.add(new SpatialIntersects(source, spatialExp, makeCircleLiteral(point, distance, literalExp)));
-                    rewritten.add(new SpatialDisjoint(source, spatialExp, makeCircleLiteral(point, Math.nextDown(distance), literalExp)));
+                    return new And(
+                        source,
+                        new SpatialIntersects(source, spatialExp, makeCircleLiteral(point, distance, literalExp)),
+                        new SpatialDisjoint(source, spatialExp, makeCircleLiteral(point, Math.nextDown(distance), literalExp))
+                    );
                 }
-                return true;
             }
-            return false;
+            return comparison;
         }
 
         private Literal makeCircleLiteral(Point point, double distance, Expression literalExpression) {
