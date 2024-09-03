@@ -18,6 +18,7 @@ import org.elasticsearch.search.lookup.Source;
 import org.elasticsearch.search.lookup.SourceFilter;
 
 import java.util.Map;
+import java.util.Optional;
 
 public final class FetchSourcePhase implements FetchSubPhase {
     @Override
@@ -27,7 +28,7 @@ public final class FetchSourcePhase implements FetchSubPhase {
             return null;
         }
         assert fetchSourceContext.fetchSource();
-        SourceFilter sourceFilter = fetchSourceContext.filter();
+        SourceFilter sourceFilter = fetchSourceContext.filter(Optional.ofNullable(fetchContext.getSearchExecutionContext().getMappingLookup()));
         final boolean filterExcludesAll = sourceFilter.excludesAll();
         return new FetchSubPhaseProcessor() {
             private int fastPath;
