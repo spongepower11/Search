@@ -89,6 +89,10 @@ public class FetchSourceContext implements Writeable, ToXContentObject {
         final boolean fetchSource = in.readBoolean();
         final String[] includes = in.readStringArray();
         final String[] excludes = in.readStringArray();
+        if (in.getTransportVersion().onOrAfter(TransportVersions.HIDE_VECTORS_FROM_SOURCE)) {
+            final Boolean includeVectors = in.readOptionalBoolean();
+            return of(fetchSource, includes, excludes, includeVectors);
+        }
         return of(fetchSource, includes, excludes);
     }
 
@@ -104,8 +108,8 @@ public class FetchSourceContext implements Writeable, ToXContentObject {
         out.writeBoolean(fetchSource);
         out.writeStringArray(includes);
         out.writeStringArray(excludes);
-        if (out.getTransportVersion().onOrAfter(TransportVersions.HIDE_VECTOR_FIELDS)) {
-            out.writeBoolean(includeVectors);
+        if (out.getTransportVersion().onOrAfter(TransportVersions.HIDE_VECTORS_FROM_SOURCE)) {
+            out.writeOptionalBoolean(includeVectors);
         }
     }
 
@@ -258,7 +262,18 @@ public class FetchSourceContext implements Writeable, ToXContentObject {
                             parser.getTokenLocation()
                         );
                     }
-                } else {
+                } else if (token == XContentParser.Token.VALUE_NULL) {
+                    if (INCLUDE_VECTORS.match(currentFieldName, parser.getDeprecationHandler())) {
+                        includeVectors = null;
+                    } else {
+                        throw new ParsingException(
+                            parser.getTokenLocation(),
+                            "Unknown key for a " + token + " in [" + currentFieldName + "].",
+                            parser.getTokenLocation()
+                        );
+                    }
+                }
+                else {
                     throw new ParsingException(
                         parser.getTokenLocation(),
                         "Unknown key for a " + token + " in [" + currentFieldName + "].",
@@ -329,9 +344,7 @@ public class FetchSourceContext implements Writeable, ToXContentObject {
         if (fetchSource != that.fetchSource) return false;
         if (Arrays.equals(excludes, that.excludes) == false) return false;
         if (Arrays.equals(includes, that.includes) == false) return false;
-        if (includeVectors != that.includeVectors) return false;
-
-        return true;
+        return includeVectors == that.includeVectors;
     }
 
     @Override
@@ -339,7 +352,9 @@ public class FetchSourceContext implements Writeable, ToXContentObject {
         int result = (fetchSource ? 1 : 0);
         result = 31 * result + Arrays.hashCode(includes);
         result = 31 * result + Arrays.hashCode(excludes);
-        result = 31 * result + (includeVectors ? 1 : 0);
+        if (includeVectors != null) {
+            result = 31 * result + (includeVectors ? 1 : 0);
+        }
         return result;
     }
 }
