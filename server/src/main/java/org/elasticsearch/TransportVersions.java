@@ -210,7 +210,6 @@ public class TransportVersions {
     public static final TransportVersion GLOBAL_RETENTION_TELEMETRY = def(8_740_00_0);
     public static final TransportVersion ML_INFERENCE_IBM_WATSONX_EMBEDDINGS_ADDED = def(8_741_00_0);
 
-
     /*
      * STOP! READ THIS FIRST! No, really,
      *        ____ _____ ___  ____  _        ____  _____    _    ____    _____ _   _ ___ ____    _____ ___ ____  ____ _____ _
