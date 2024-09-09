@@ -1,0 +1,16 @@
+categorize
+required_capability: categorize
+
+FROM sample_data
+  | STATS result = CATEGORIZE(message)
+  | MV_EXPAND result 
+  | EVAL result = SPLIT(result, ";")
+  | EVAL key = MV_SLICE(result, 0), regex = MV_SLICE(result, 1), count = TO_LONG(MV_SLICE(result, 2))
+  | DROP result
+;
+
+key:keyword      | regex:keyword            | count:long
+Connection error | .*?Connection.+?error.*? | 3
+Connected to     | .*?Connected.+?to.*?     | 3
+Disconnected     | .*?Disconnected.*?       | 1
+;

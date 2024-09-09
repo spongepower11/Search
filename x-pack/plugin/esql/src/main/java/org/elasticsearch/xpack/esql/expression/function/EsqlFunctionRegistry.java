@@ -19,6 +19,7 @@ import org.elasticsearch.xpack.esql.core.tree.Source;
 import org.elasticsearch.xpack.esql.core.type.DataType;
 import org.elasticsearch.xpack.esql.core.util.Check;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.Avg;
+import org.elasticsearch.xpack.esql.expression.function.aggregate.Categorize;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.Count;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.CountDistinct;
 import org.elasticsearch.xpack.esql.expression.function.aggregate.Max;
@@ -254,6 +255,7 @@ public class EsqlFunctionRegistry {
             // aggregate functions
             new FunctionDefinition[] {
                 def(Avg.class, Avg::new, "avg"),
+                def(Categorize.class, Categorize::new, "categorize"),
                 def(Count.class, Count::new, "count"),
                 def(CountDistinct.class, CountDistinct::new, "count_distinct"),
                 def(Max.class, Max::new, "max"),
