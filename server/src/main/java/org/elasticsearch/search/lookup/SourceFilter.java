@@ -113,4 +113,8 @@ public final class SourceFilter {
     public boolean excludesAll() {
         return Arrays.asList(excludes).contains("*");
     }
+
+    public boolean isEmpty() {
+        return this.empty;
+    }
 }
