@@ -25,7 +25,7 @@ import org.elasticsearch.license.License;
 import org.elasticsearch.license.LicenseStateListener;
 import org.elasticsearch.license.LicensedFeature;
 import org.elasticsearch.license.XPackLicenseState;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection;
 import org.elasticsearch.persistent.PersistentTasksService;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.RemoteTransportException;
@@ -85,7 +85,7 @@ public class EnterpriseGeoIpDownloaderLicenseListener implements LicenseStateLis
 
     @Override
     public void clusterChanged(ClusterChangedEvent event) {
-        hasIngestGeoIpMetadata = event.state().metadata().custom(INGEST_GEOIP_CUSTOM_METADATA_TYPE) != null;
+        hasIngestGeoIpMetadata = event.state().metadata().section(INGEST_GEOIP_CUSTOM_METADATA_TYPE) != null;
         final boolean ingestGeoIpCustomMetaChangedInEvent = event.metadataChanged()
             && event.changedCustomMetadataSet().contains(INGEST_GEOIP_CUSTOM_METADATA_TYPE);
         final boolean masterNodeChanged = Objects.equals(
@@ -131,7 +131,7 @@ public class EnterpriseGeoIpDownloaderLicenseListener implements LicenseStateLis
     }
 
     private void ensureTaskStopped() {
-        ActionListener<PersistentTasksCustomMetadata.PersistentTask<?>> listener = ActionListener.wrap(
+        ActionListener<PersistentTasksMetadataSection.PersistentTask<?>> listener = ActionListener.wrap(
             r -> logger.debug("Stopped enterprise geoip downloader task"),
             e -> {
                 Throwable t = e instanceof RemoteTransportException ? ExceptionsHelper.unwrapCause(e) : e;

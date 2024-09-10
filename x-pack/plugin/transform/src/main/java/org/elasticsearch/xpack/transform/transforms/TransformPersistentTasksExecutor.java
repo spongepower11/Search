@@ -30,8 +30,8 @@ import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.persistent.AllocatedPersistentTask;
 import org.elasticsearch.persistent.PersistentTaskState;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
 import org.elasticsearch.persistent.PersistentTasksExecutor;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.indexing.IndexerState;
@@ -107,7 +107,7 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
     }
 
     @Override
-    public PersistentTasksCustomMetadata.Assignment getAssignment(
+    public PersistentTasksMetadataSection.Assignment getAssignment(
         TransformTaskParams params,
         Collection<DiscoveryNode> candidateNodes,
         ClusterState clusterState
@@ -120,7 +120,7 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
          * Operations on the transform node happen in {@link #nodeOperation()}
          */
         if (TransformMetadata.getTransformMetadata(clusterState).isResetMode()) {
-            return new PersistentTasksCustomMetadata.Assignment(
+            return new PersistentTasksMetadataSection.Assignment(
                 null,
                 "Transform task will not be assigned as a feature reset is in progress."
             );
@@ -134,7 +134,7 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
                 + String.join(",", unavailableIndices)
                 + "]";
             logger.debug(reason);
-            return new PersistentTasksCustomMetadata.Assignment(null, reason);
+            return new PersistentTasksMetadataSection.Assignment(null, reason);
         }
         Map<String, String> explainWhyAssignmentFailed = new TreeMap<>();
         DiscoveryNode discoveryNode = selectLeastLoadedNode(
@@ -165,10 +165,10 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
                 + "]";
 
             logger.debug(reason);
-            return new PersistentTasksCustomMetadata.Assignment(null, reason);
+            return new PersistentTasksMetadataSection.Assignment(null, reason);
         }
 
-        return new PersistentTasksCustomMetadata.Assignment(discoveryNode.getId(), "");
+        return new PersistentTasksMetadataSection.Assignment(discoveryNode.getId(), "");
     }
 
     static List<String> verifyIndicesPrimaryShardsAreActive(ClusterState clusterState, IndexNameExpressionResolver resolver) {
@@ -497,7 +497,7 @@ public class TransformPersistentTasksExecutor extends PersistentTasksExecutor<Tr
         String type,
         String action,
         TaskId parentTaskId,
-        PersistentTasksCustomMetadata.PersistentTask<TransformTaskParams> persistentTask,
+        PersistentTasksMetadataSection.PersistentTask<TransformTaskParams> persistentTask,
         Map<String, String> headers
     ) {
         return new TransformTask(

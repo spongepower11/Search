@@ -1578,7 +1578,7 @@ public class CoordinatorTests extends AbstractCoordinatorTestCase {
         }
     }
 
-    private static class BrokenCustom implements SimpleDiffable<ClusterState.Custom>, ClusterState.Custom {
+    private static class BrokenSection implements SimpleDiffable<ClusterState.Custom>, ClusterState.Custom {
 
         static final String EXCEPTION_MESSAGE = "simulated";
 
@@ -1614,11 +1614,15 @@ public class CoordinatorTests extends AbstractCoordinatorTestCase {
             logger.info("--> submitting broken task to [{}]", leader1);
 
             final AtomicBoolean failed = new AtomicBoolean();
-            leader1.submitUpdateTask("broken-task", cs -> ClusterState.builder(cs).putCustom("broken", new BrokenCustom()).build(), (e) -> {
-                assertThat(e.getCause(), instanceOf(ElasticsearchException.class));
-                assertThat(e.getCause().getMessage(), equalTo(BrokenCustom.EXCEPTION_MESSAGE));
-                failed.set(true);
-            });
+            leader1.submitUpdateTask(
+                "broken-task",
+                cs -> ClusterState.builder(cs).putCustom("broken", new BrokenSection()).build(),
+                (e) -> {
+                    assertThat(e.getCause(), instanceOf(ElasticsearchException.class));
+                    assertThat(e.getCause().getMessage(), equalTo(BrokenSection.EXCEPTION_MESSAGE));
+                    failed.set(true);
+                }
+            );
             // allow for forking 3 times:
             // - once onto the master-service thread
             // - once to fork the publication in FakeThreadPoolMasterService

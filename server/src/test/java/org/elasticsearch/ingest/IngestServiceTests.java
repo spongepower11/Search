@@ -237,7 +237,7 @@ public class IngestServiceTests extends ESTestCase {
             {"processors": [{"set" : {"field": "_field", "value": "_value"}}]}"""), XContentType.JSON);
         IngestMetadata ingestMetadata = new IngestMetadata(Map.of("_id", pipeline));
         clusterState = ClusterState.builder(clusterState)
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
             .build();
         ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
         assertThat(ingestService.pipelines().size(), is(1));
@@ -357,7 +357,7 @@ public class IngestServiceTests extends ESTestCase {
             ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
             ClusterState previousClusterState = clusterState;
             clusterState = ClusterState.builder(clusterState)
-                .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+                .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
                 .build();
             ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
 
@@ -380,7 +380,7 @@ public class IngestServiceTests extends ESTestCase {
             ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
             ClusterState previousClusterState = clusterState;
             clusterState = ClusterState.builder(clusterState)
-                .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+                .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
                 .build();
             ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
 
@@ -400,7 +400,7 @@ public class IngestServiceTests extends ESTestCase {
         ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
         ClusterState previousClusterState = clusterState;
         clusterState = ClusterState.builder(clusterState)
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
             .build();
         ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
         assertThat(ingestService.getPipeline("_id"), notNullValue());
@@ -797,7 +797,7 @@ public class IngestServiceTests extends ESTestCase {
         ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
         ClusterState previousClusterState = clusterState;
         clusterState = ClusterState.builder(clusterState)
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
             .build();
         ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
         assertThat(ingestService.getPipeline("p1"), notNullValue());
@@ -846,7 +846,7 @@ public class IngestServiceTests extends ESTestCase {
         ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
         ClusterState previousClusterState = clusterState;
         clusterState = ClusterState.builder(clusterState)
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, ingestMetadata))
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, ingestMetadata))
             .build();
         ingestService.applyClusterState(new ClusterChangedEvent("", clusterState, previousClusterState));
         assertThat(ingestService.getPipeline("p1"), notNullValue());
@@ -871,7 +871,7 @@ public class IngestServiceTests extends ESTestCase {
                 true
             );
         }
-        builder.putCustom(IngestMetadata.TYPE, ingestMetadata);
+        builder.putSection(IngestMetadata.TYPE, ingestMetadata);
         Metadata metadata = builder.build();
 
         ClusterState clusterState = ClusterState.builder(new ClusterName("_name")).build();
@@ -2665,7 +2665,7 @@ public class IngestServiceTests extends ESTestCase {
         var pipelineId = randomAlphaOfLength(5);
         var existingPipeline = new PipelineConfiguration(pipelineId, new BytesArray(pipelineString), XContentType.JSON);
         var clusterState = ClusterState.builder(new ClusterName("test"))
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
             .build();
 
         Client client = mock(Client.class);
@@ -2760,7 +2760,7 @@ public class IngestServiceTests extends ESTestCase {
         var pipelineString = "{\"version\": " + version + ", \"processors\": []}";
         var existingPipeline = new PipelineConfiguration(pipelineId, new BytesArray(pipelineString), XContentType.JSON);
         var clusterState = ClusterState.builder(new ClusterName("test"))
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
             .build();
 
         final Integer requestedVersion = randomValueOtherThan(version, ESTestCase::randomInt);
@@ -2786,7 +2786,7 @@ public class IngestServiceTests extends ESTestCase {
         var pipelineString = "{\"version\": " + version + ", \"processors\": []}";
         var existingPipeline = new PipelineConfiguration(pipelineId, new BytesArray(pipelineString), XContentType.JSON);
         var clusterState = ClusterState.builder(new ClusterName("test"))
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
             .build();
 
         var request = new PutPipelineRequest(pipelineId, new BytesArray(pipelineString), XContentType.JSON, version);
@@ -2800,7 +2800,7 @@ public class IngestServiceTests extends ESTestCase {
         var pipelineString = "{\"version\": " + existingVersion + ", \"processors\": []}";
         var existingPipeline = new PipelineConfiguration(pipelineId, new BytesArray(pipelineString), XContentType.JSON);
         var clusterState = ClusterState.builder(new ClusterName("test"))
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
             .build();
 
         final int specifiedVersion = randomValueOtherThan(existingVersion, ESTestCase::randomInt);
@@ -2808,7 +2808,7 @@ public class IngestServiceTests extends ESTestCase {
         var request = new PutPipelineRequest(pipelineId, new BytesArray(updatedPipelineString), XContentType.JSON, existingVersion);
         var updatedState = executePut(request, clusterState);
 
-        var updatedConfig = ((IngestMetadata) updatedState.metadata().custom(IngestMetadata.TYPE)).getPipelines().get(pipelineId);
+        var updatedConfig = ((IngestMetadata) updatedState.metadata().section(IngestMetadata.TYPE)).getPipelines().get(pipelineId);
         assertThat(updatedConfig, notNullValue());
         assertThat(updatedConfig.getVersion(), equalTo(specifiedVersion));
     }
@@ -2819,14 +2819,14 @@ public class IngestServiceTests extends ESTestCase {
         var pipelineString = "{\"version\": " + existingVersion + ", \"processors\": []}";
         var existingPipeline = new PipelineConfiguration(pipelineId, new BytesArray(pipelineString), XContentType.JSON);
         var clusterState = ClusterState.builder(new ClusterName("test"))
-            .metadata(Metadata.builder().putCustom(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
+            .metadata(Metadata.builder().putSection(IngestMetadata.TYPE, new IngestMetadata(Map.of(pipelineId, existingPipeline))).build())
             .build();
 
         var updatedPipelineString = "{\"processors\": []}";
         var request = new PutPipelineRequest(pipelineId, new BytesArray(updatedPipelineString), XContentType.JSON, existingVersion);
         var updatedState = executePut(request, clusterState);
 
-        var updatedConfig = ((IngestMetadata) updatedState.metadata().custom(IngestMetadata.TYPE)).getPipelines().get(pipelineId);
+        var updatedConfig = ((IngestMetadata) updatedState.metadata().section(IngestMetadata.TYPE)).getPipelines().get(pipelineId);
         assertThat(updatedConfig, notNullValue());
         assertThat(updatedConfig.getVersion(), equalTo(existingVersion + 1));
     }

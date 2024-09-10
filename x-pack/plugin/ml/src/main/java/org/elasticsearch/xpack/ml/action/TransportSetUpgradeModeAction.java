@@ -31,8 +31,8 @@ import org.elasticsearch.core.Predicates;
 import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.injection.guice.Inject;
 import org.elasticsearch.persistent.PersistentTasksClusterService;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection.PersistentTask;
 import org.elasticsearch.persistent.PersistentTasksService;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.tasks.Task;
@@ -142,7 +142,7 @@ public class TransportSetUpgradeModeAction extends AcknowledgedTransportMasterNo
             isRunning.set(false);
             listener.onFailure(e);
         });
-        final PersistentTasksCustomMetadata tasksCustomMetadata = state.metadata().custom(PersistentTasksCustomMetadata.TYPE);
+        final PersistentTasksMetadataSection tasksCustomMetadata = state.metadata().section(PersistentTasksMetadataSection.TYPE);
 
         // <4> We have unassigned the tasks, respond to the listener.
         ActionListener<List<PersistentTask<?>>> unassignPersistentTasksListener = ActionListener.wrap(unassignedPersistentTasks -> {
@@ -249,10 +249,10 @@ public class TransportSetUpgradeModeAction extends AcknowledgedTransportMasterNo
             @Override
             public ClusterState execute(ClusterState currentState) throws Exception {
                 logger.trace("Executing cluster state update");
-                MlMetadata.Builder builder = new MlMetadata.Builder(currentState.metadata().custom(MlMetadata.TYPE));
+                MlMetadata.Builder builder = new MlMetadata.Builder(currentState.metadata().section(MlMetadata.TYPE));
                 builder.isUpgradeMode(request.isEnabled());
                 ClusterState.Builder newState = ClusterState.builder(currentState);
-                newState.metadata(Metadata.builder(currentState.getMetadata()).putCustom(MlMetadata.TYPE, builder.build()).build());
+                newState.metadata(Metadata.builder(currentState.getMetadata()).putSection(MlMetadata.TYPE, builder.build()).build());
                 return newState.build();
             }
         });
@@ -282,7 +282,7 @@ public class TransportSetUpgradeModeAction extends AcknowledgedTransportMasterNo
      * @param listener            Alerted when tasks are unassignd
      */
     private void unassignPersistentTasks(
-        PersistentTasksCustomMetadata tasksCustomMetadata,
+        PersistentTasksMetadataSection tasksCustomMetadata,
         ActionListener<List<PersistentTask<?>>> listener
     ) {
         List<PersistentTask<?>> mlTasks = tasksCustomMetadata.tasks()
@@ -321,7 +321,7 @@ public class TransportSetUpgradeModeAction extends AcknowledgedTransportMasterNo
     }
 
     private void isolateDatafeeds(
-        PersistentTasksCustomMetadata tasksCustomMetadata,
+        PersistentTasksMetadataSection tasksCustomMetadata,
         ActionListener<List<IsolateDatafeedAction.Response>> listener
     ) {
         Set<String> datafeedsToIsolate = MlTasks.startedDatafeedIds(tasksCustomMetadata);

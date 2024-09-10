@@ -34,7 +34,7 @@ import org.elasticsearch.common.util.set.Sets;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.core.SuppressForbidden;
 import org.elasticsearch.gateway.GatewayService;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.xpack.core.ml.MachineLearningField;
@@ -525,10 +525,10 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         logger.debug(() -> format("updated assignments: %s", modelAssignments.build()));
         Metadata.Builder metadata = Metadata.builder(currentState.metadata());
         if (currentState.getMinTransportVersion().onOrAfter(RENAME_ALLOCATION_TO_ASSIGNMENT_TRANSPORT_VERSION)) {
-            metadata.putCustom(TrainedModelAssignmentMetadata.NAME, modelAssignments.build())
-                .removeCustom(TrainedModelAssignmentMetadata.DEPRECATED_NAME);
+            metadata.putSection(TrainedModelAssignmentMetadata.NAME, modelAssignments.build())
+                .removeSection(TrainedModelAssignmentMetadata.DEPRECATED_NAME);
         } else {
-            metadata.putCustom(TrainedModelAssignmentMetadata.DEPRECATED_NAME, modelAssignments.buildOld());
+            metadata.putSection(TrainedModelAssignmentMetadata.DEPRECATED_NAME, modelAssignments.buildOld());
         }
         return ClusterState.builder(currentState).metadata(metadata).build();
     }
@@ -1113,26 +1113,26 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
     }
 
     static Optional<String> detectReasonIfMlJobsStopped(ClusterChangedEvent event) {
-        if (event.changedCustomMetadataSet().contains(PersistentTasksCustomMetadata.TYPE) == false) {
+        if (event.changedCustomMetadataSet().contains(PersistentTasksMetadataSection.TYPE) == false) {
             return Optional.empty();
         }
 
-        PersistentTasksCustomMetadata previousPersistentTasks = PersistentTasksCustomMetadata.getPersistentTasksCustomMetadata(
+        PersistentTasksMetadataSection previousPersistentTasks = PersistentTasksMetadataSection.getPersistentTasksCustomMetadata(
             event.previousState()
         );
         if (previousPersistentTasks == null) { // no previous jobs so nothing has stopped
             return Optional.empty();
         }
 
-        PersistentTasksCustomMetadata currentPersistentTasks = PersistentTasksCustomMetadata.getPersistentTasksCustomMetadata(
+        PersistentTasksMetadataSection currentPersistentTasks = PersistentTasksMetadataSection.getPersistentTasksCustomMetadata(
             event.state()
         );
         Set<String> currentMlTaskIds = findMlProcessTaskIds(currentPersistentTasks);
 
-        Set<PersistentTasksCustomMetadata.PersistentTask<?>> previousMlTasks = MlTasks.findMlProcessTasks(previousPersistentTasks);
+        Set<PersistentTasksMetadataSection.PersistentTask<?>> previousMlTasks = MlTasks.findMlProcessTasks(previousPersistentTasks);
         Set<String> stoppedTaskTypes = previousMlTasks.stream()
             .filter(task -> currentMlTaskIds.contains(task.getId()) == false) // remove the tasks that are still present. Stopped Ids only.
-            .map(PersistentTasksCustomMetadata.PersistentTask::getTaskName)
+            .map(PersistentTasksMetadataSection.PersistentTask::getTaskName)
             .map(MlTasks::prettyPrintTaskName)
             .collect(Collectors.toSet());
         if (stoppedTaskTypes.size() == 1) {
@@ -1143,12 +1143,12 @@ public class TrainedModelAssignmentClusterService implements ClusterStateListene
         return Optional.empty();
     }
 
-    private static Set<String> findMlProcessTaskIds(@Nullable PersistentTasksCustomMetadata metadata) {
+    private static Set<String> findMlProcessTaskIds(@Nullable PersistentTasksMetadataSection metadata) {
         return metadata == null
             ? Set.of()
             : MlTasks.findMlProcessTasks(metadata)
                 .stream()
-                .map(PersistentTasksCustomMetadata.PersistentTask::getId)
+                .map(PersistentTasksMetadataSection.PersistentTask::getId)
                 .collect(Collectors.toSet());
     }
 

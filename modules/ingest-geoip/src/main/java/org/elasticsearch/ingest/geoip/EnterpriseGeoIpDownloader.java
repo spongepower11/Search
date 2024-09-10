@@ -33,7 +33,7 @@ import org.elasticsearch.ingest.geoip.GeoIpTaskState.Metadata;
 import org.elasticsearch.ingest.geoip.direct.DatabaseConfiguration;
 import org.elasticsearch.ingest.geoip.direct.DatabaseConfigurationMetadata;
 import org.elasticsearch.persistent.AllocatedPersistentTask;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata.PersistentTask;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection.PersistentTask;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.Scheduler;
 import org.elasticsearch.threadpool.ThreadPool;
@@ -156,7 +156,7 @@ public class EnterpriseGeoIpDownloader extends AllocatedPersistentTask {
         }
 
         logger.trace("Updating geoip databases");
-        IngestGeoIpMetadata geoIpMeta = clusterState.metadata().custom(IngestGeoIpMetadata.TYPE, IngestGeoIpMetadata.EMPTY);
+        IngestGeoIpMetadata geoIpMeta = clusterState.metadata().section(IngestGeoIpMetadata.TYPE, IngestGeoIpMetadata.EMPTY);
 
         // if there are entries in the cs that aren't in the persistent task state,
         // then download those (only)

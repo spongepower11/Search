@@ -331,7 +331,7 @@ public class RepositoriesService extends AbstractLifecycleComponent implements C
                 repositoriesMetadata.add(new RepositoryMetadata(request.name(), request.type(), request.settings()));
             }
             repositories = new RepositoriesMetadata(repositoriesMetadata);
-            mdBuilder.putCustom(RepositoriesMetadata.TYPE, repositories);
+            mdBuilder.putSection(RepositoriesMetadata.TYPE, repositories);
             changed = true;
             return ClusterState.builder(currentState).metadata(mdBuilder).build();
         }
@@ -436,7 +436,7 @@ public class RepositoriesService extends AbstractLifecycleComponent implements C
                     } else {
                         final RepositoriesMetadata newReposMetadata = currentReposMetadata.withUuid(repositoryName, repositoryUuid);
                         final Metadata.Builder metadata = Metadata.builder(currentState.metadata())
-                            .putCustom(RepositoriesMetadata.TYPE, newReposMetadata);
+                            .putSection(RepositoriesMetadata.TYPE, newReposMetadata);
                         return ClusterState.builder(currentState).metadata(metadata).build();
                     }
                 }
@@ -519,7 +519,7 @@ public class RepositoriesService extends AbstractLifecycleComponent implements C
                 }
                 if (changed) {
                     repositories = new RepositoriesMetadata(repositoriesMetadata);
-                    mdBuilder.putCustom(RepositoriesMetadata.TYPE, repositories);
+                    mdBuilder.putSection(RepositoriesMetadata.TYPE, repositories);
                     return ClusterState.builder(currentState).metadata(mdBuilder).build();
                 }
             }

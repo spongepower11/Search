@@ -17,7 +17,6 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.Diff;
 import org.elasticsearch.cluster.Diffable;
 import org.elasticsearch.cluster.DiffableUtils;
-import org.elasticsearch.cluster.NamedDiffable;
 import org.elasticsearch.cluster.NamedDiffableValueSerializer;
 import org.elasticsearch.cluster.SimpleDiffable;
 import org.elasticsearch.cluster.block.ClusterBlock;
@@ -56,7 +55,6 @@ import org.elasticsearch.plugins.MapperPlugin;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.transport.Transports;
 import org.elasticsearch.xcontent.NamedObjectNotFoundException;
-import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.ToXContent;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xcontent.XContentParser;
@@ -139,22 +137,6 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
      */
     public static EnumSet<XContentContext> ALL_CONTEXTS = EnumSet.allOf(XContentContext.class);
 
-    /**
-     * Custom metadata that persists (via XContent) across restarts. The deserialization method for each implementation must be registered
-     * with the {@link NamedXContentRegistry}.
-     */
-    public interface Custom extends NamedDiffable<Custom>, ChunkedToXContent {
-
-        EnumSet<XContentContext> context();
-
-        /**
-         * @return true if this custom could be restored from snapshot
-         */
-        default boolean isRestorable() {
-            return context().contains(XContentContext.SNAPSHOT);
-        }
-    }
-
     public static final Setting<Boolean> SETTING_READ_ONLY_SETTING = Setting.boolSetting(
         "cluster.blocks.read_only",
         false,
@@ -202,7 +184,9 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
     public static final String DEDUPLICATED_MAPPINGS_PARAM = "deduplicated_mappings";
     public static final String GLOBAL_STATE_FILE_PREFIX = "global-";
 
-    private static final NamedDiffableValueSerializer<Custom> CUSTOM_VALUE_SERIALIZER = new NamedDiffableValueSerializer<>(Custom.class);
+    private static final NamedDiffableValueSerializer<MetadataSection> CUSTOM_VALUE_SERIALIZER = new NamedDiffableValueSerializer<>(
+        MetadataSection.class
+    );
 
     private final String clusterUUID;
     private final boolean clusterUUIDCommitted;
@@ -217,7 +201,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
     private final ImmutableOpenMap<String, IndexMetadata> indices;
     private final ImmutableOpenMap<String, Set<Index>> aliasedIndices;
     private final ImmutableOpenMap<String, IndexTemplateMetadata> templates;
-    private final ImmutableOpenMap<String, Custom> customs;
+    private final ImmutableOpenMap<String, MetadataSection> sections;
     private final Map<String, ReservedStateMetadata> reservedStateMetadata;
 
     private final transient int totalNumberOfShards; // Transient ? not serializable anyway?
@@ -259,7 +243,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         ImmutableOpenMap<String, IndexMetadata> indices,
         ImmutableOpenMap<String, Set<Index>> aliasedIndices,
         ImmutableOpenMap<String, IndexTemplateMetadata> templates,
-        ImmutableOpenMap<String, Custom> customs,
+        ImmutableOpenMap<String, MetadataSection> sections,
         String[] allIndices,
         String[] visibleIndices,
         String[] allOpenIndices,
@@ -281,7 +265,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         this.hashesOfConsistentSettings = hashesOfConsistentSettings;
         this.indices = indices;
         this.aliasedIndices = aliasedIndices;
-        this.customs = customs;
+        this.sections = sections;
         this.templates = templates;
         this.totalNumberOfShards = totalNumberOfShards;
         this.totalOpenIndexShards = totalOpenIndexShards;
@@ -300,7 +284,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
 
     private boolean assertConsistent() {
         final var lookup = this.indicesLookup;
-        final var dsMetadata = custom(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY);
+        final var dsMetadata = section(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY);
         assert lookup == null || lookup.equals(Builder.buildIndicesLookup(dsMetadata, indices));
         try {
             Builder.ensureNoNameCollisions(aliasedIndices.keySet(), indices, dsMetadata);
@@ -339,7 +323,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indices,
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -400,7 +384,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             builder.build(),
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -440,7 +424,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             builder.build(),
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -469,7 +453,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indices,
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -505,7 +489,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indices,
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -546,7 +530,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             updatedIndicesBuilder.build(),
             aliasedIndices,
             templates,
-            customs,
+            sections,
             allIndices,
             visibleIndices,
             allOpenIndices,
@@ -641,7 +625,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indicesMap,
             updatedAliases,
             templates,
-            customs,
+            sections,
             updatedAllIndices,
             updatedVisibleIndices,
             updatedOpenIndices,
@@ -779,7 +763,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         if (i != null) {
             return i;
         }
-        i = Builder.buildIndicesLookup(custom(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY), indices);
+        i = Builder.buildIndicesLookup(section(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY), indices);
         indicesLookup = i;
         return i;
     }
@@ -1295,13 +1279,13 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
     }
 
     public Map<String, ComponentTemplate> componentTemplates() {
-        return Optional.ofNullable((ComponentTemplateMetadata) this.custom(ComponentTemplateMetadata.TYPE))
+        return Optional.ofNullable((ComponentTemplateMetadata) this.section(ComponentTemplateMetadata.TYPE))
             .map(ComponentTemplateMetadata::componentTemplates)
             .orElse(Collections.emptyMap());
     }
 
     public Map<String, ComposableIndexTemplate> templatesV2() {
-        return Optional.ofNullable((ComposableIndexTemplateMetadata) this.custom(ComposableIndexTemplateMetadata.TYPE))
+        return Optional.ofNullable((ComposableIndexTemplateMetadata) this.section(ComposableIndexTemplateMetadata.TYPE))
             .map(ComposableIndexTemplateMetadata::indexTemplates)
             .orElse(Collections.emptyMap());
     }
@@ -1330,11 +1314,11 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
     }
 
     public Map<String, DataStream> dataStreams() {
-        return this.custom(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY).dataStreams();
+        return this.section(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY).dataStreams();
     }
 
     public Map<String, DataStreamAlias> dataStreamAliases() {
-        return this.custom(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY).getDataStreamAliases();
+        return this.section(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY).getDataStreamAliases();
     }
 
     /**
@@ -1357,7 +1341,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
     }
 
     public NodesShutdownMetadata nodeShutdowns() {
-        return custom(NodesShutdownMetadata.TYPE, NodesShutdownMetadata.EMPTY);
+        return section(NodesShutdownMetadata.TYPE, NodesShutdownMetadata.EMPTY);
     }
 
     /**
@@ -1386,8 +1370,8 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         return true;
     }
 
-    public Map<String, Custom> customs() {
-        return this.customs;
+    public Map<String, MetadataSection> customs() {
+        return this.sections;
     }
 
     /**
@@ -1403,17 +1387,17 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
      * The collection of index deletions in the cluster.
      */
     public IndexGraveyard indexGraveyard() {
-        return custom(IndexGraveyard.TYPE);
+        return section(IndexGraveyard.TYPE);
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Custom> T custom(String type) {
-        return (T) customs.get(type);
+    public <T extends MetadataSection> T section(String type) {
+        return (T) sections.get(type);
     }
 
     @SuppressWarnings("unchecked")
-    public <T extends Custom> T custom(String type, T defaultValue) {
-        return (T) customs.getOrDefault(type, defaultValue);
+    public <T extends MetadataSection> T section(String type, T defaultValue) {
+        return (T) sections.getOrDefault(type, defaultValue);
     }
 
     /**
@@ -1468,17 +1452,17 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         }
         // Check if any persistent metadata needs to be saved
         int customCount1 = 0;
-        for (Map.Entry<String, Custom> cursor : metadata1.customs.entrySet()) {
+        for (Map.Entry<String, MetadataSection> cursor : metadata1.sections.entrySet()) {
             if (cursor.getValue().context().contains(XContentContext.GATEWAY)) {
-                if (cursor.getValue().equals(metadata2.custom(cursor.getKey())) == false) {
+                if (cursor.getValue().equals(metadata2.section(cursor.getKey())) == false) {
                     return false;
                 }
                 customCount1++;
             }
         }
         int customCount2 = 0;
-        for (Custom custom : metadata2.customs.values()) {
-            if (custom.context().contains(XContentContext.GATEWAY)) {
+        for (MetadataSection section : metadata2.sections.values()) {
+            if (section.context().contains(XContentContext.GATEWAY)) {
                 customCount2++;
             }
         }
@@ -1543,7 +1527,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             ),
             indices,
             Iterators.flatMap(
-                customs.entrySet().iterator(),
+                sections.entrySet().iterator(),
                 entry -> entry.getValue().context().contains(context)
                     ? ChunkedToXContentHelper.wrapWithObject(entry.getKey(), entry.getValue().toXContentChunked(p))
                     : Collections.emptyIterator()
@@ -1572,7 +1556,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         private final Diff<DiffableStringMap> hashesOfConsistentSettings;
         private final Diff<ImmutableOpenMap<String, IndexMetadata>> indices;
         private final Diff<ImmutableOpenMap<String, IndexTemplateMetadata>> templates;
-        private final Diff<ImmutableOpenMap<String, Custom>> customs;
+        private final Diff<ImmutableOpenMap<String, MetadataSection>> customs;
         private final Diff<Map<String, ReservedStateMetadata>> reservedStateMetadata;
 
         /**
@@ -1599,8 +1583,8 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
                 indices = DiffableUtils.diff(before.indices, after.indices, DiffableUtils.getStringKeySerializer());
                 templates = DiffableUtils.diff(before.templates, after.templates, DiffableUtils.getStringKeySerializer());
                 customs = DiffableUtils.diff(
-                    before.customs,
-                    after.customs,
+                    before.sections,
+                    after.sections,
                     DiffableUtils.getStringKeySerializer(),
                     CUSTOM_VALUE_SERIALIZER
                 );
@@ -1693,10 +1677,10 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             builder.hashesOfConsistentSettings(hashesOfConsistentSettings.apply(part.hashesOfConsistentSettings));
             builder.indices(updatedIndices);
             builder.templates(templates.apply(part.templates));
-            builder.customs(customs.apply(part.customs));
+            builder.sections(customs.apply(part.sections));
             builder.put(reservedStateMetadata.apply(part.reservedStateMetadata));
             if (part.indices == updatedIndices
-                && builder.dataStreamMetadata() == part.custom(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY)) {
+                && builder.dataStreamMetadata() == part.section(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY)) {
                 builder.previousIndicesLookup = part.indicesLookup;
             }
             return builder.build(true);
@@ -1737,8 +1721,8 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         }
         int customSize = in.readVInt();
         for (int i = 0; i < customSize; i++) {
-            Custom customIndexMetadata = in.readNamedWriteable(Custom.class);
-            builder.putCustom(customIndexMetadata.getWriteableName(), customIndexMetadata);
+            MetadataSection section = in.readNamedWriteable(MetadataSection.class);
+            builder.putSection(section.getWriteableName(), section);
         }
         if (in.getTransportVersion().onOrAfter(TransportVersions.V_8_4_0)) {
             int reservedStateSize = in.readVInt();
@@ -1771,7 +1755,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indexMetadata.writeTo(out, writeMappingsHash);
         }
         out.writeCollection(templates.values());
-        VersionedNamedWriteable.writeVersionedWritables(out, customs);
+        VersionedNamedWriteable.writeVersionedWritables(out, sections);
         if (out.getTransportVersion().onOrAfter(TransportVersions.V_8_4_0)) {
             out.writeCollection(reservedStateMetadata.values());
         }
@@ -1805,7 +1789,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         private final ImmutableOpenMap.Builder<String, IndexMetadata> indices;
         private final ImmutableOpenMap.Builder<String, Set<Index>> aliasedIndices;
         private final ImmutableOpenMap.Builder<String, IndexTemplateMetadata> templates;
-        private final ImmutableOpenMap.Builder<String, Custom> customs;
+        private final ImmutableOpenMap.Builder<String, MetadataSection> sections;
 
         private SortedMap<String, IndexAbstraction> previousIndicesLookup;
 
@@ -1835,7 +1819,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             this.indices = ImmutableOpenMap.builder(metadata.indices);
             this.aliasedIndices = ImmutableOpenMap.builder(metadata.aliasedIndices);
             this.templates = ImmutableOpenMap.builder(metadata.templates);
-            this.customs = ImmutableOpenMap.builder(metadata.customs);
+            this.sections = ImmutableOpenMap.builder(metadata.sections);
             this.previousIndicesLookup = metadata.indicesLookup;
             this.mappingsByHash = new HashMap<>(metadata.mappingsByHash);
             this.checkForUnusedMappings = false;
@@ -1848,7 +1832,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             indices = ImmutableOpenMap.builder(indexCountHint);
             aliasedIndices = ImmutableOpenMap.builder();
             templates = ImmutableOpenMap.builder();
-            customs = ImmutableOpenMap.builder();
+            sections = ImmutableOpenMap.builder();
             reservedStateMetadata = new HashMap<>();
             indexGraveyard(IndexGraveyard.builder().build()); // create new empty index graveyard to initialize
             previousIndicesLookup = null;
@@ -2067,30 +2051,30 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             Objects.requireNonNull(componentTemplate, "it is invalid to add a null component template: " + name);
             // ಠ_ಠ at ImmutableOpenMap
             Map<String, ComponentTemplate> existingTemplates = Optional.ofNullable(
-                (ComponentTemplateMetadata) this.customs.get(ComponentTemplateMetadata.TYPE)
+                (ComponentTemplateMetadata) this.sections.get(ComponentTemplateMetadata.TYPE)
             ).map(ctm -> new HashMap<>(ctm.componentTemplates())).orElse(new HashMap<>());
             existingTemplates.put(name, componentTemplate);
-            this.customs.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(existingTemplates));
+            this.sections.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(existingTemplates));
             return this;
         }
 
         public Builder removeComponentTemplate(String name) {
             // ಠ_ಠ at ImmutableOpenMap
             Map<String, ComponentTemplate> existingTemplates = Optional.ofNullable(
-                (ComponentTemplateMetadata) this.customs.get(ComponentTemplateMetadata.TYPE)
+                (ComponentTemplateMetadata) this.sections.get(ComponentTemplateMetadata.TYPE)
             ).map(ctm -> new HashMap<>(ctm.componentTemplates())).orElse(new HashMap<>());
             existingTemplates.remove(name);
-            this.customs.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(existingTemplates));
+            this.sections.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(existingTemplates));
             return this;
         }
 
         public Builder componentTemplates(Map<String, ComponentTemplate> componentTemplates) {
-            this.customs.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(componentTemplates));
+            this.sections.put(ComponentTemplateMetadata.TYPE, new ComponentTemplateMetadata(componentTemplates));
             return this;
         }
 
         public Builder indexTemplates(Map<String, ComposableIndexTemplate> indexTemplates) {
-            this.customs.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(indexTemplates));
+            this.sections.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(indexTemplates));
             return this;
         }
 
@@ -2098,20 +2082,20 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             Objects.requireNonNull(indexTemplate, "it is invalid to add a null index template: " + name);
             // ಠ_ಠ at ImmutableOpenMap
             Map<String, ComposableIndexTemplate> existingTemplates = Optional.ofNullable(
-                (ComposableIndexTemplateMetadata) this.customs.get(ComposableIndexTemplateMetadata.TYPE)
+                (ComposableIndexTemplateMetadata) this.sections.get(ComposableIndexTemplateMetadata.TYPE)
             ).map(itmd -> new HashMap<>(itmd.indexTemplates())).orElse(new HashMap<>());
             existingTemplates.put(name, indexTemplate);
-            this.customs.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(existingTemplates));
+            this.sections.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(existingTemplates));
             return this;
         }
 
         public Builder removeIndexTemplate(String name) {
             // ಠ_ಠ at ImmutableOpenMap
             Map<String, ComposableIndexTemplate> existingTemplates = Optional.ofNullable(
-                (ComposableIndexTemplateMetadata) this.customs.get(ComposableIndexTemplateMetadata.TYPE)
+                (ComposableIndexTemplateMetadata) this.sections.get(ComposableIndexTemplateMetadata.TYPE)
             ).map(itmd -> new HashMap<>(itmd.indexTemplates())).orElse(new HashMap<>());
             existingTemplates.remove(name);
-            this.customs.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(existingTemplates));
+            this.sections.put(ComposableIndexTemplateMetadata.TYPE, new ComposableIndexTemplateMetadata(existingTemplates));
             return this;
         }
 
@@ -2127,7 +2111,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
                 dataStream.validate(indices::get);
             }
 
-            this.customs.put(
+            this.sections.put(
                 DataStreamMetadata.TYPE,
                 new DataStreamMetadata(
                     ImmutableOpenMap.<String, DataStream>builder().putAllFromMap(dataStreams).build(),
@@ -2147,12 +2131,12 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             // trigger this validation on each new Metadata creation, even if there are no changes to data streams.
             dataStream.validate(indices::get);
 
-            this.customs.put(DataStreamMetadata.TYPE, dataStreamMetadata().withAddedDatastream(dataStream));
+            this.sections.put(DataStreamMetadata.TYPE, dataStreamMetadata().withAddedDatastream(dataStream));
             return this;
         }
 
         public DataStreamMetadata dataStreamMetadata() {
-            return (DataStreamMetadata) this.customs.getOrDefault(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY);
+            return (DataStreamMetadata) this.sections.getOrDefault(DataStreamMetadata.TYPE, DataStreamMetadata.EMPTY);
         }
 
         public boolean put(String aliasName, String dataStream, Boolean isWriteDataStream, String filter) {
@@ -2162,13 +2146,13 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             if (existing == updated) {
                 return false;
             }
-            this.customs.put(DataStreamMetadata.TYPE, updated);
+            this.sections.put(DataStreamMetadata.TYPE, updated);
             return true;
         }
 
         public Builder removeDataStream(String name) {
             previousIndicesLookup = null;
-            this.customs.put(DataStreamMetadata.TYPE, dataStreamMetadata().withRemovedDataStream(name));
+            this.sections.put(DataStreamMetadata.TYPE, dataStreamMetadata().withRemovedDataStream(name));
             return this;
         }
 
@@ -2180,32 +2164,32 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
             if (existing == updated) {
                 return false;
             }
-            this.customs.put(DataStreamMetadata.TYPE, updated);
+            this.sections.put(DataStreamMetadata.TYPE, updated);
             return true;
         }
 
-        public Custom getCustom(String type) {
-            return customs.get(type);
+        public MetadataSection getSection(String type) {
+            return sections.get(type);
         }
 
-        public Builder putCustom(String type, Custom custom) {
-            customs.put(type, Objects.requireNonNull(custom, type));
+        public Builder putSection(String type, MetadataSection section) {
+            sections.put(type, Objects.requireNonNull(section, type));
             return this;
         }
 
-        public Builder removeCustom(String type) {
-            customs.remove(type);
+        public Builder removeSection(String type) {
+            sections.remove(type);
             return this;
         }
 
-        public Builder removeCustomIf(BiPredicate<String, Custom> p) {
-            customs.removeAll(p);
+        public Builder removeSectionIf(BiPredicate<String, MetadataSection> p) {
+            sections.removeAll(p);
             return this;
         }
 
-        public Builder customs(Map<String, Custom> customs) {
-            customs.forEach((key, value) -> Objects.requireNonNull(value, key));
-            this.customs.putAllFromMap(customs);
+        public Builder sections(Map<String, MetadataSection> sections) {
+            sections.forEach((key, value) -> Objects.requireNonNull(value, key));
+            this.sections.putAllFromMap(sections);
             return this;
         }
 
@@ -2240,12 +2224,12 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
         }
 
         public Builder indexGraveyard(final IndexGraveyard indexGraveyard) {
-            putCustom(IndexGraveyard.TYPE, indexGraveyard);
+            putSection(IndexGraveyard.TYPE, indexGraveyard);
             return this;
         }
 
         public IndexGraveyard indexGraveyard() {
-            return (IndexGraveyard) getCustom(IndexGraveyard.TYPE);
+            return (IndexGraveyard) getSection(IndexGraveyard.TYPE);
         }
 
         public Builder updateSettings(Settings settings, String... indices) {
@@ -2442,7 +2426,7 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
                 indicesMap,
                 aliasedIndices,
                 templates.build(),
-                customs.build(),
+                sections.build(),
                 allIndicesArray,
                 visibleIndicesArray,
                 allOpenIndicesArray,
@@ -2786,8 +2770,8 @@ public class Metadata implements Iterable<IndexMetadata>, Diffable<Metadata>, Ch
                         }
                     } else {
                         try {
-                            Custom custom = parser.namedObject(Custom.class, currentFieldName, null);
-                            builder.putCustom(custom.getWriteableName(), custom);
+                            MetadataSection section = parser.namedObject(MetadataSection.class, currentFieldName, null);
+                            builder.putSection(section.getWriteableName(), section);
                         } catch (NamedObjectNotFoundException ex) {
                             logger.warn("Skipping unknown custom object with type {}", currentFieldName);
                             parser.skipChildren();

@@ -11,12 +11,13 @@ import org.elasticsearch.TransportVersion;
 import org.elasticsearch.action.ActionRequestBuilder;
 import org.elasticsearch.cluster.NamedDiff;
 import org.elasticsearch.cluster.metadata.Metadata;
+import org.elasticsearch.cluster.metadata.MetadataSection;
 import org.elasticsearch.common.io.stream.NamedWriteableRegistry;
 import org.elasticsearch.common.io.stream.Writeable;
 import org.elasticsearch.core.CheckedFunction;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.repositories.RepositoryMissingException;
-import org.elasticsearch.test.TestCustomMetadata;
+import org.elasticsearch.test.TestMetadataSection;
 import org.elasticsearch.xcontent.NamedXContentRegistry;
 import org.elasticsearch.xcontent.ParseField;
 import org.elasticsearch.xcontent.XContentParser;
@@ -38,7 +39,7 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
 
     @Override
     protected Collection<Class<? extends Plugin>> nodePlugins() {
-        return Collections.singletonList(TestCustomMetadataPlugin.class);
+        return Collections.singletonList(TestMetadataSectionPlugin.class);
     }
 
     public void testShouldNotRestoreRepositoryMetadata() {
@@ -80,9 +81,9 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         boolean isSnapshotMetadataSet = randomBoolean();
         updateClusterState(currentState -> currentState.copyAndUpdateMetadata(metadataBuilder -> {
             if (isSnapshotMetadataSet) {
-                metadataBuilder.putCustom(SnapshotMetadata.TYPE, new SnapshotMetadata("before_snapshot_s"));
+                metadataBuilder.putSection(SnapshotMetadata.TYPE, new SnapshotMetadata("before_snapshot_s"));
             }
-            metadataBuilder.putCustom(ApiMetadata.TYPE, new ApiMetadata("before_snapshot_ns"));
+            metadataBuilder.putSection(ApiMetadata.TYPE, new ApiMetadata("before_snapshot_ns"));
         }));
 
         logger.info("create snapshot");
@@ -92,11 +93,11 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         logger.info("update custom persistent metadata");
         updateClusterState(currentState -> currentState.copyAndUpdateMetadata(metadataBuilder -> {
             if (isSnapshotMetadataSet == false || randomBoolean()) {
-                metadataBuilder.putCustom(SnapshotMetadata.TYPE, new SnapshotMetadata("after_snapshot_s"));
+                metadataBuilder.putSection(SnapshotMetadata.TYPE, new SnapshotMetadata("after_snapshot_s"));
             } else {
-                metadataBuilder.removeCustom(SnapshotMetadata.TYPE);
+                metadataBuilder.removeSection(SnapshotMetadata.TYPE);
             }
-            metadataBuilder.putCustom(ApiMetadata.TYPE, new ApiMetadata("after_snapshot_ns"));
+            metadataBuilder.putSection(ApiMetadata.TYPE, new ApiMetadata("after_snapshot_ns"));
         }));
 
         logger.info("restore snapshot");
@@ -109,18 +110,18 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         var metadata = clusterAdmin().prepareState().get().getState().getMetadata();
         logger.info("check that custom persistent metadata [{}] is correctly restored", metadata);
         if (isSnapshotMetadataSet) {
-            assertThat(metadata.<SnapshotMetadata>custom(SnapshotMetadata.TYPE).getData(), equalTo("before_snapshot_s"));
+            assertThat(metadata.<SnapshotMetadata>section(SnapshotMetadata.TYPE).getData(), equalTo("before_snapshot_s"));
         } else {
-            assertThat(metadata.<SnapshotMetadata>custom(SnapshotMetadata.TYPE), nullValue());
+            assertThat(metadata.<SnapshotMetadata>section(SnapshotMetadata.TYPE), nullValue());
         }
-        assertThat(metadata.<ApiMetadata>custom(ApiMetadata.TYPE).getData(), equalTo("after_snapshot_ns"));
+        assertThat(metadata.<ApiMetadata>section(ApiMetadata.TYPE).getData(), equalTo("after_snapshot_ns"));
     }
 
     public void testShouldKeepGatewayMetadataAfterRestart() throws Exception {
         logger.info("add custom gateway metadata");
         updateClusterState(currentState -> currentState.copyAndUpdateMetadata(metadataBuilder -> {
-            metadataBuilder.putCustom(GatewayMetadata.TYPE, new GatewayMetadata("before_restart_s_gw"));
-            metadataBuilder.putCustom(ApiMetadata.TYPE, new ApiMetadata("before_restart_ns"));
+            metadataBuilder.putSection(GatewayMetadata.TYPE, new GatewayMetadata("before_restart_s_gw"));
+            metadataBuilder.putSection(ApiMetadata.TYPE, new ApiMetadata("before_restart_ns"));
         }));
 
         logger.info("restart all nodes");
@@ -129,45 +130,45 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
 
         var metadata = clusterAdmin().prepareState().get().getState().getMetadata();
         logger.info("check that gateway custom metadata [{}] survived full cluster restart", metadata);
-        assertThat(metadata.<GatewayMetadata>custom(GatewayMetadata.TYPE).getData(), equalTo("before_restart_s_gw"));
-        assertThat(metadata.<ApiMetadata>custom(ApiMetadata.TYPE), nullValue());
+        assertThat(metadata.<GatewayMetadata>section(GatewayMetadata.TYPE).getData(), equalTo("before_restart_s_gw"));
+        assertThat(metadata.<ApiMetadata>section(ApiMetadata.TYPE), nullValue());
     }
 
     public void testShouldExposeApiMetadata() throws Exception {
         logger.info("add custom api metadata");
         updateClusterState(currentState -> currentState.copyAndUpdateMetadata(metadataBuilder -> {
-            metadataBuilder.putCustom(ApiMetadata.TYPE, new ApiMetadata("before_restart_s_gw"));
-            metadataBuilder.putCustom(NonApiMetadata.TYPE, new NonApiMetadata("before_restart_ns"));
+            metadataBuilder.putSection(ApiMetadata.TYPE, new ApiMetadata("before_restart_s_gw"));
+            metadataBuilder.putSection(NonApiMetadata.TYPE, new NonApiMetadata("before_restart_ns"));
         }));
 
         var metadata = clusterAdmin().prepareState().get().getState().getMetadata();
         logger.info("check that api custom metadata [{}] is visible via api", metadata);
-        assertThat(metadata.<ApiMetadata>custom(ApiMetadata.TYPE).getData(), equalTo("before_restart_s_gw"));
-        assertThat(metadata.<NonApiMetadata>custom(NonApiMetadata.TYPE), nullValue());
+        assertThat(metadata.<ApiMetadata>section(ApiMetadata.TYPE).getData(), equalTo("before_restart_s_gw"));
+        assertThat(metadata.<NonApiMetadata>section(NonApiMetadata.TYPE), nullValue());
     }
 
-    public static class TestCustomMetadataPlugin extends Plugin {
+    public static class TestMetadataSectionPlugin extends Plugin {
 
         private final List<NamedWriteableRegistry.Entry> namedWritables = new ArrayList<>();
         private final List<NamedXContentRegistry.Entry> namedXContents = new ArrayList<>();
 
-        public TestCustomMetadataPlugin() {
+        public TestMetadataSectionPlugin() {
             registerBuiltinWritables();
         }
 
-        private <T extends Metadata.Custom> void registerMetadataCustom(
+        private <T extends MetadataSection> void registerMetadataSection(
             String name,
             Writeable.Reader<T> reader,
             Writeable.Reader<NamedDiff<?>> diffReader,
             CheckedFunction<XContentParser, T, IOException> parser
         ) {
-            namedWritables.add(new NamedWriteableRegistry.Entry(Metadata.Custom.class, name, reader));
+            namedWritables.add(new NamedWriteableRegistry.Entry(MetadataSection.class, name, reader));
             namedWritables.add(new NamedWriteableRegistry.Entry(NamedDiff.class, name, diffReader));
-            namedXContents.add(new NamedXContentRegistry.Entry(Metadata.Custom.class, new ParseField(name), parser));
+            namedXContents.add(new NamedXContentRegistry.Entry(MetadataSection.class, new ParseField(name), parser));
         }
 
         private void registerBuiltinWritables() {
-            Map.<String, Function<String, TestCustomMetadata>>of(
+            Map.<String, Function<String, TestMetadataSection>>of(
                 SnapshotMetadata.TYPE,
                 SnapshotMetadata::new,
                 GatewayMetadata.TYPE,
@@ -178,11 +179,11 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
                 NonApiMetadata::new
             )
                 .forEach(
-                    (type, constructor) -> registerMetadataCustom(
+                    (type, constructor) -> registerMetadataSection(
                         type,
-                        in -> TestCustomMetadata.readFrom(constructor, in),
-                        in -> TestCustomMetadata.readDiffFrom(type, in),
-                        parser -> TestCustomMetadata.fromXContent(constructor, parser)
+                        in -> TestMetadataSection.readFrom(constructor, in),
+                        in -> TestMetadataSection.readDiffFrom(type, in),
+                        parser -> TestMetadataSection.fromXContent(constructor, parser)
                     )
                 );
         }
@@ -198,11 +199,11 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         }
     }
 
-    private abstract static class ThisTestCustomMetadata extends TestCustomMetadata {
+    private abstract static class ThisTestMetadataSection extends TestMetadataSection {
         private final String type;
         private final EnumSet<Metadata.XContentContext> context;
 
-        ThisTestCustomMetadata(String data, String type, EnumSet<Metadata.XContentContext> context) {
+        ThisTestMetadataSection(String data, String type, EnumSet<Metadata.XContentContext> context) {
             super(data);
             this.type = type;
             this.context = context;
@@ -224,7 +225,7 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         }
     }
 
-    private static class SnapshotMetadata extends ThisTestCustomMetadata {
+    private static class SnapshotMetadata extends ThisTestMetadataSection {
         public static final String TYPE = "test_metadata_scope_snapshot";
 
         SnapshotMetadata(String data) {
@@ -232,7 +233,7 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         }
     }
 
-    private static class GatewayMetadata extends ThisTestCustomMetadata {
+    private static class GatewayMetadata extends ThisTestMetadataSection {
         public static final String TYPE = "test_metadata_scope_gateway";
 
         GatewayMetadata(String data) {
@@ -240,7 +241,7 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         }
     }
 
-    private static class ApiMetadata extends ThisTestCustomMetadata {
+    private static class ApiMetadata extends ThisTestMetadataSection {
         public static final String TYPE = "test_metadata_scope_api";
 
         ApiMetadata(String data) {
@@ -248,7 +249,7 @@ public class CustomMetadataContextIT extends AbstractSnapshotIntegTestCase {
         }
     }
 
-    private static class NonApiMetadata extends ThisTestCustomMetadata {
+    private static class NonApiMetadata extends ThisTestMetadataSection {
         public static final String TYPE = "test_metadata_scope_non_api";
 
         NonApiMetadata(String data) {

@@ -61,7 +61,7 @@ import org.elasticsearch.indices.store.IndicesStore;
 import org.elasticsearch.license.LicenseSettings;
 import org.elasticsearch.license.LicensesMetadata;
 import org.elasticsearch.monitor.jvm.HotThreads;
-import org.elasticsearch.persistent.PersistentTasksCustomMetadata;
+import org.elasticsearch.persistent.PersistentTasksMetadataSection;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.search.SearchResponseUtils;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
@@ -188,7 +188,7 @@ public abstract class CcrIntegTestCase extends ESTestCase {
         leaderCluster.ensureAtLeastNumDataNodes(numberOfNodesPerCluster());
         assertBusy(() -> {
             ClusterService clusterService = leaderCluster.getInstance(ClusterService.class);
-            assertNotNull(clusterService.state().metadata().custom(LicensesMetadata.TYPE));
+            assertNotNull(clusterService.state().metadata().section(LicensesMetadata.TYPE));
         }, 60, TimeUnit.SECONDS);
 
         String address = leaderCluster.getDataNodeInstance(TransportService.class).boundAddress().publishAddress().toString();
@@ -212,7 +212,7 @@ public abstract class CcrIntegTestCase extends ESTestCase {
         followerCluster.ensureAtLeastNumDataNodes(numberOfNodesPerCluster());
         assertBusy(() -> {
             ClusterService clusterService = followerCluster.getInstance(ClusterService.class);
-            assertNotNull(clusterService.state().metadata().custom(LicensesMetadata.TYPE));
+            assertNotNull(clusterService.state().metadata().section(LicensesMetadata.TYPE));
         }, 60, TimeUnit.SECONDS);
         setupMasterNodeRequestsValidatorOnFollowerCluster();
     }
@@ -503,8 +503,8 @@ public abstract class CcrIntegTestCase extends ESTestCase {
             );
 
             final ClusterState clusterState = followerClient().admin().cluster().prepareState().get().getState();
-            PersistentTasksCustomMetadata tasks = clusterState.metadata().custom(PersistentTasksCustomMetadata.TYPE);
-            Collection<PersistentTasksCustomMetadata.PersistentTask<?>> ccrTasks = tasks.tasks()
+            PersistentTasksMetadataSection tasks = clusterState.metadata().section(PersistentTasksMetadataSection.TYPE);
+            Collection<PersistentTasksMetadataSection.PersistentTask<?>> ccrTasks = tasks.tasks()
                 .stream()
                 .filter(t -> t.getTaskName().equals(ShardFollowTask.NAME))
                 .toList();
@@ -863,8 +863,8 @@ public abstract class CcrIntegTestCase extends ESTestCase {
                 ClusterState.Builder newState = ClusterState.builder(currentState);
                 newState.metadata(
                     Metadata.builder(currentState.getMetadata())
-                        .putCustom(AutoFollowMetadata.TYPE, empty)
-                        .removeCustom(PersistentTasksCustomMetadata.TYPE)
+                        .putSection(AutoFollowMetadata.TYPE, empty)
+                        .removeSection(PersistentTasksMetadataSection.TYPE)
                         .build()
                 );
                 return newState.build();
