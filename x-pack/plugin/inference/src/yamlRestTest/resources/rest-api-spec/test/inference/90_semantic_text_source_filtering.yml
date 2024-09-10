@@ -1,0 +1,125 @@
+setup:
+  - requires:
+      cluster_features: "gte_v8.15.0"
+      reason: semantic_text introduced in 8.15.0
+
+  - do:
+      inference.put:
+        task_type: sparse_embedding
+        inference_id: sparse-inference-id
+        body: >
+          {
+            "service": "test_service",
+            "service_settings": {
+              "model": "my_model",
+              "api_key": "abc64"
+            },
+            "task_settings": {
+            }
+          }
+
+  - do:
+      indices.create:
+        index: test-index
+        body:
+          mappings:
+            properties:
+              sparse_field:
+                type: semantic_text
+                inference_id: sparse-inference-id
+
+  - do:
+      index:
+        index: test-index
+        id: doc_1
+        body:
+          sparse_field: ["inference test", "another inference test"]
+        refresh: true
+
+---
+"Exclude embeddings from _source by default":
+
+  - requires:
+      cluster_features: "gte_v8.16.0"
+      reason: _source filtering for Semantic text added in 8.16.0
+
+  - do:
+      headers:
+        # Force JSON content type so that we use a parser that interprets the floating-point score as a double
+        Content-Type: application/json
+      search:
+        index: test-index
+        body:
+          query:
+            semantic:
+              field: "sparse_field"
+              query: "inference test"
+
+  - not_exists: _source.sparse_field.inference.chunks.0.embeddings
+  - not_exists: _source.sparse_field.inference.chunks.1.embeddings
+
+---
+"Exclude embeddings from _source":
+
+  - requires:
+      cluster_features: "gte_v8.16.0"
+      reason: _source filtering for Semantic text added in 8.16.0
+
+  - do:
+      headers:
+        # Force JSON content type so that we use a parser that interprets the floating-point score as a double
+        Content-Type: application/json
+      search:
+        index: test-index
+        body:
+          _source:
+            include_vectors: false
+          query:
+            semantic:
+              field: "sparse_field"
+              query: "inference test"
+
+  - not_exists: _source.sparse_field.inference.chunks.0.embeddings
+  - not_exists: _source.sparse_field.inference.chunks.1.embeddings
+
+---
+"Include embedding in _source":
+
+  - requires:
+      cluster_features: "gte_v8.16.0"
+      reason: _source filtering for Semantic text added in 8.16.0
+
+  - do:
+      headers:
+        # Force JSON content type so that we use a parser that interprets the floating-point score as a double
+        Content-Type: application/json
+      search:
+        index: test-index
+        body:
+          _source:
+            include_vectors: true
+          query:
+            semantic:
+              field: "sparse_field"
+              query: "inference test"
+
+  - exists: _source.sparse_field.inference.chunks.0.embeddings
+  - exists: _source.sparse_field.inference.chunks.1.embeddings
+
+---
+"Include embeddings in _source by default":
+
+  - do:
+      headers:
+        # Force JSON content type so that we use a parser that interprets the floating-point score as a double
+        Content-Type: application/json
+      search:
+        index: test-index
+        body:
+          query:
+            semantic:
+              field: "sparse_field"
+              query: "inference test"
+
+  - exists: _source.sparse_field.inference.chunks.0.embeddings
+  - exists: _source.sparse_field.inference.chunks.1.embeddings

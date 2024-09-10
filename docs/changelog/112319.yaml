@@ -1,0 +1,5 @@
+pr: 112319
+summary: Add parameter to hide/show vector fields from _source
+area: "Mapping"
+type: enhancement
+issues: []
