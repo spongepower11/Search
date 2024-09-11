@@ -26,7 +26,7 @@ public class InferenceIndex {
     public static final String INDEX_PATTERN = INDEX_NAME + "*";
 
     // Increment this version number when the mappings change
-    private static final int INDEX_MAPPING_VERSION = 1;
+    private static final int INDEX_MAPPING_VERSION = 2;
 
     public static Settings settings() {
         return Settings.builder()
@@ -82,6 +82,14 @@ public class InferenceIndex {
                 .startObject("task_settings")
                 .field("dynamic", "false")
                 .startObject("properties")
+                .endObject()
+                .endObject()
+                .startObject("chunking_settings")
+                .field("dynamic", "false")
+                .startObject("properties")
+                .startObject("strategy")
+                .field("type", "keyword")
+                .endObject()
                 .endObject()
                 .endObject()
                 .endObject()
