@@ -208,6 +208,8 @@ public class TransportVersions {
     public static final TransportVersion ESQL_AGGREGATE_EXEC_TRACKS_INTERMEDIATE_ATTRS = def(8_738_00_0);
     public static final TransportVersion CCS_TELEMETRY_STATS = def(8_739_00_0);
     public static final TransportVersion GLOBAL_RETENTION_TELEMETRY = def(8_740_00_0);
+    public static final TransportVersion ML_INFERENCE_IBM_WATSONX_EMBEDDINGS_ADDED = def(8_741_00_0);
+
 
     /*
      * STOP! READ THIS FIRST! No, really,
