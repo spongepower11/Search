@@ -1,0 +1,6 @@
+pr: 112796
+summary: Change default locale of date processors to ENGLISH
+area: Ingest Node
+type: bug
+issues:
+ - 112692
