@@ -21,6 +21,7 @@ import org.elasticsearch.common.time.DateMathParser;
 import org.elasticsearch.common.util.LocaleUtils;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.features.NodeFeature;
+import org.elasticsearch.index.IndexVersion;
 import org.elasticsearch.index.fielddata.FieldDataContext;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.plain.BinaryIndexFieldData;
@@ -388,7 +389,8 @@ public class RangeFieldMapper extends FieldMapper {
             return;
         }
 
-        Range range = parseRange(parser);
+        IndexVersion indexVersion = context.indexSettings().getIndexMetadata().getCreationVersion();
+        Range range = parseRange(parser, indexVersion);
         context.doc().addAll(fieldType().rangeType.createFields(context, fullPath(), range, index, hasDocValues, store));
 
         if (hasDocValues == false && (index || store)) {
@@ -396,7 +398,7 @@ public class RangeFieldMapper extends FieldMapper {
         }
     }
 
-    private Range parseRange(XContentParser parser) throws IOException {
+    private Range parseRange(XContentParser parser, IndexVersion indexVersion) throws IOException {
         final XContentParser.Token start = parser.currentToken();
         if (fieldType().rangeType == RangeType.IP && start == XContentParser.Token.VALUE_STRING) {
             return parseIpRangeFromCidr(parser);
@@ -424,22 +426,22 @@ public class RangeFieldMapper extends FieldMapper {
                 if (fieldName.equals(GT_FIELD.getPreferredName())) {
                     includeFrom = false;
                     if (parser.currentToken() != XContentParser.Token.VALUE_NULL) {
-                        parsedFrom = rangeType.parseFrom(fieldType, parser, coerce.value(), includeFrom);
+                        parsedFrom = rangeType.parseFrom(fieldType, parser, coerce.value(), includeFrom, indexVersion);
                     }
                 } else if (fieldName.equals(GTE_FIELD.getPreferredName())) {
                     includeFrom = true;
                     if (parser.currentToken() != XContentParser.Token.VALUE_NULL) {
-                        parsedFrom = rangeType.parseFrom(fieldType, parser, coerce.value(), includeFrom);
+                        parsedFrom = rangeType.parseFrom(fieldType, parser, coerce.value(), includeFrom, indexVersion);
                     }
                 } else if (fieldName.equals(LT_FIELD.getPreferredName())) {
                     includeTo = false;
                     if (parser.currentToken() != XContentParser.Token.VALUE_NULL) {
-                        parsedTo = rangeType.parseTo(fieldType, parser, coerce.value(), includeTo);
+                        parsedTo = rangeType.parseTo(fieldType, parser, coerce.value(), includeTo, indexVersion);
                     }
                 } else if (fieldName.equals(LTE_FIELD.getPreferredName())) {
                     includeTo = true;
                     if (parser.currentToken() != XContentParser.Token.VALUE_NULL) {
-                        parsedTo = rangeType.parseTo(fieldType, parser, coerce.value(), includeTo);
+                        parsedTo = rangeType.parseTo(fieldType, parser, coerce.value(), includeTo, indexVersion);
                     }
                 } else {
                     throw new DocumentParsingException(

@@ -26,6 +26,8 @@ import org.elasticsearch.common.network.InetAddresses;
 import org.elasticsearch.common.time.DateFormatter;
 import org.elasticsearch.common.time.DateMathParser;
 import org.elasticsearch.core.Nullable;
+import org.elasticsearch.index.IndexVersion;
+import org.elasticsearch.index.IndexVersions;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.lucene.queries.BinaryDocValuesRangeQuery;
 import org.elasticsearch.xcontent.XContentParser;
@@ -51,15 +53,25 @@ public enum RangeType {
         }
 
         @Override
-        public InetAddress parseFrom(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-            throws IOException {
+        public InetAddress parseFrom(
+            RangeFieldMapper.RangeFieldType fieldType,
+            XContentParser parser,
+            boolean coerce,
+            boolean included,
+            IndexVersion indexVersion
+        ) throws IOException {
             InetAddress address = InetAddresses.forString(parser.text());
             return included ? address : nextUp(address);
         }
 
         @Override
-        public InetAddress parseTo(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-            throws IOException {
+        public InetAddress parseTo(
+            RangeFieldMapper.RangeFieldType fieldType,
+            XContentParser parser,
+            boolean coerce,
+            boolean included,
+            IndexVersion indexVersion
+        ) throws IOException {
             InetAddress address = InetAddresses.forString(parser.text());
             return included ? address : nextDown(address);
         }
@@ -193,23 +205,43 @@ public enum RangeType {
         }
 
         @Override
-        public Number parseFrom(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-            throws IOException {
-            assert fieldType.dateMathParser != null;
-            Number value = fieldType.dateMathParser.parse(parser.text(), () -> {
-                throw new IllegalArgumentException("now is not used at indexing time");
-            }, included == false, null).toEpochMilli();
-            return included ? value : nextUp(value);
+        public Number parseFrom(
+            RangeFieldMapper.RangeFieldType fieldType,
+            XContentParser parser,
+            boolean coerce,
+            boolean included,
+            IndexVersion indexVersion
+        ) throws IOException {
+            if (indexVersion != null && indexVersion.before(IndexVersions.DATE_RANGE_QUERY_FIX)) {
+                Number value = parseValue(parser.text(), coerce, fieldType.dateMathParser);
+                return included ? value : nextUp(value);
+            } else {
+                assert fieldType.dateMathParser != null;
+                Number value = fieldType.dateMathParser.parse(parser.text(), () -> {
+                    throw new IllegalArgumentException("now is not used at indexing time");
+                }, included == false, null).toEpochMilli();
+                return included ? value : nextUp(value);
+            }
         }
 
         @Override
-        public Number parseTo(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-            throws IOException {
-            assert fieldType.dateMathParser != null;
-            Number value = fieldType.dateMathParser.parse(parser.text(), () -> {
-                throw new IllegalArgumentException("now is not used at indexing time");
-            }, included, null).toEpochMilli();
-            return included ? value : nextDown(value);
+        public Number parseTo(
+            RangeFieldMapper.RangeFieldType fieldType,
+            XContentParser parser,
+            boolean coerce,
+            boolean included,
+            IndexVersion indexVersion
+        ) throws IOException {
+            if (indexVersion != null && indexVersion.before(IndexVersions.DATE_RANGE_QUERY_FIX)) {
+                Number value = parseValue(parser.text(), coerce, fieldType.dateMathParser);
+                return included ? value : nextDown(value);
+            } else {
+                assert fieldType.dateMathParser != null;
+                Number value = fieldType.dateMathParser.parse(parser.text(), () -> {
+                    throw new IllegalArgumentException("now is not used at indexing time");
+                }, included, null).toEpochMilli();
+                return included ? value : nextDown(value);
+            }
         }
 
         @Override
@@ -300,7 +332,6 @@ public enum RangeType {
                     roundUp,
                     zone
                 ).toEpochMilli();
-
             roundUp = includeUpper; // using "lte" should round upper bound up
             Long high = upperTerm == null
                 ? maxValue()
@@ -839,15 +870,25 @@ public enum RangeType {
     }
 
     /** parses from value. rounds according to included flag */
-    public Object parseFrom(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-        throws IOException {
+    public Object parseFrom(
+        RangeFieldMapper.RangeFieldType fieldType,
+        XContentParser parser,
+        boolean coerce,
+        boolean included,
+        IndexVersion indexVersion
+    ) throws IOException {
         Number value = numberType.parse(parser, coerce);
         return included ? value : (Number) nextUp(value);
     }
 
     /** parses to value. rounds according to included flag */
-    public Object parseTo(RangeFieldMapper.RangeFieldType fieldType, XContentParser parser, boolean coerce, boolean included)
-        throws IOException {
+    public Object parseTo(
+        RangeFieldMapper.RangeFieldType fieldType,
+        XContentParser parser,
+        boolean coerce,
+        boolean included,
+        IndexVersion indexVersion
+    ) throws IOException {
         Number value = numberType.parse(parser, coerce);
         return included ? value : (Number) nextDown(value);
     }
