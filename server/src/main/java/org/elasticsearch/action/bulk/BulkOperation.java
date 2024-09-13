@@ -85,7 +85,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
     private final ConcurrentLinkedQueue<BulkItemRequest> failureStoreRedirects = new ConcurrentLinkedQueue<>();
     private final long startTimeNanos;
     private final ClusterStateObserver observer;
-    private final Map<String, IndexNotFoundException> indicesThatCannotBeCreated;
     private final Executor executor;
     private final LongSupplier relativeTimeProvider;
     private final FailureStoreDocumentConverter failureStoreDocumentConverter;
@@ -104,7 +103,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
         BulkRequest bulkRequest,
         NodeClient client,
         AtomicArray<BulkItemResponse> responses,
-        Map<String, IndexNotFoundException> indicesThatCannotBeCreated,
         IndexNameExpressionResolver indexNameExpressionResolver,
         LongSupplier relativeTimeProvider,
         long startTimeNanos,
@@ -119,7 +117,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
             bulkRequest,
             client,
             responses,
-            indicesThatCannotBeCreated,
             indexNameExpressionResolver,
             relativeTimeProvider,
             startTimeNanos,
@@ -138,7 +135,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
         BulkRequest bulkRequest,
         NodeClient client,
         AtomicArray<BulkItemResponse> responses,
-        Map<String, IndexNotFoundException> indicesThatCannotBeCreated,
         IndexNameExpressionResolver indexNameExpressionResolver,
         LongSupplier relativeTimeProvider,
         long startTimeNanos,
@@ -155,7 +151,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
         this.bulkRequest = bulkRequest;
         this.listener = listener;
         this.startTimeNanos = startTimeNanos;
-        this.indicesThatCannotBeCreated = indicesThatCannotBeCreated;
         this.executor = executor;
         this.relativeTimeProvider = relativeTimeProvider;
         this.indexNameExpressionResolver = indexNameExpressionResolver;
@@ -286,9 +281,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
                 continue;
             }
             if (addFailureIfRequiresAliasAndAliasIsMissing(docWriteRequest, bulkItemRequest.id(), metadata)) {
-                continue;
-            }
-            if (addFailureIfIndexCannotBeCreated(docWriteRequest, bulkItemRequest.id())) {
                 continue;
             }
             if (addFailureIfRequiresDataStreamAndNoParentDataStream(docWriteRequest, bulkItemRequest.id(), metadata)) {
@@ -681,15 +673,6 @@ final class BulkOperation extends ActionRunnable<BulkResponse> {
         IndexMetadata indexMetadata = metadata.getIndexSafe(concreteIndex);
         if (indexMetadata.getState() == IndexMetadata.State.CLOSE) {
             addFailureAndDiscardRequest(request, idx, request.index(), new IndexClosedException(concreteIndex));
-            return true;
-        }
-        return false;
-    }
-
-    private boolean addFailureIfIndexCannotBeCreated(DocWriteRequest<?> request, int idx) {
-        IndexNotFoundException cannotCreate = indicesThatCannotBeCreated.get(request.index());
-        if (cannotCreate != null) {
-            addFailureAndDiscardRequest(request, idx, request.index(), cannotCreate);
             return true;
         }
         return false;
