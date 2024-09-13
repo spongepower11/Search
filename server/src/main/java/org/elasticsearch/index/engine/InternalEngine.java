@@ -1257,7 +1257,6 @@ public class InternalEngine extends Engine {
                     localCheckpointTracker.markSeqNoAsPersisted(indexResult.getSeqNo());
                 }
                 indexResult.setTook(relativeTimeInNanosSupplier.getAsLong() - index.startTime());
-                indexResult.freeze();
                 return indexResult;
             } finally {
                 releaseInFlightDocs(reservedDocs);
@@ -1669,7 +1668,6 @@ public class InternalEngine extends Engine {
                 localCheckpointTracker.markSeqNoAsPersisted(deleteResult.getSeqNo());
             }
             deleteResult.setTook(System.nanoTime() - delete.startTime());
-            deleteResult.freeze();
         } catch (RuntimeException | IOException e) {
             try {
                 maybeFailEngine("delete", e);
@@ -2004,7 +2002,6 @@ public class InternalEngine extends Engine {
                 localCheckpointTracker.markSeqNoAsPersisted(noOpResult.getSeqNo());
             }
             noOpResult.setTook(System.nanoTime() - noOp.startTime());
-            noOpResult.freeze();
             return noOpResult;
         } finally {
             assert isDrainedForClose() == false;
