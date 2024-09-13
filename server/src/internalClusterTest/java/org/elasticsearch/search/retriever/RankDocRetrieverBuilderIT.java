@@ -35,6 +35,7 @@ import org.elasticsearch.search.rank.RankDoc;
 import org.elasticsearch.search.sort.FieldSortBuilder;
 import org.elasticsearch.search.sort.NestedSortBuilder;
 import org.elasticsearch.search.sort.ScoreSortBuilder;
+import org.elasticsearch.search.sort.ShardDocSortField;
 import org.elasticsearch.search.sort.SortBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.test.ESIntegTestCase;
@@ -266,13 +267,15 @@ public class RankDocRetrieverBuilderIT extends ESIntegTestCase {
                 )
             )
         );
+        source.size(1);
         source.aggregation(new TermsAggregationBuilder("topic").field(TOPIC_FIELD));
         SearchRequestBuilder req = client().prepareSearch(INDEX).setSource(source);
         ElasticsearchAssertions.assertResponse(req, resp -> {
             assertNull(resp.pointInTimeId());
             assertNotNull(resp.getHits().getTotalHits());
-            assertThat(resp.getHits().getTotalHits().value, equalTo(1L));
+            assertThat(resp.getHits().getTotalHits().value, equalTo(5L));
             assertThat(resp.getHits().getTotalHits().relation, equalTo(TotalHits.Relation.EQUAL_TO));
+            assertThat(resp.getHits().getHits().length, equalTo(1));
             assertThat(resp.getHits().getAt(0).getId(), equalTo("doc_2"));
             assertNotNull(resp.getAggregations());
             assertNotNull(resp.getAggregations().get("topic"));
@@ -346,11 +349,7 @@ public class RankDocRetrieverBuilderIT extends ESIntegTestCase {
         });
     }
 
-    public void testRankDocsRetrieverWithCollapseAndAggs() {
-        // same as above, but we only want to bring back the top result from each subsearch
-        // so that would be 1, 2, and 7
-        // and final rank would be (based on score): 2, 1, 7
-        // aggs should still account for the same docs as the testRankDocsRetriever test, i.e. all but doc_5
+    public void testRankDocsRetrieverWithNestedCollapseAndAggs() {
         final int rankWindowSize = 10;
         SearchSourceBuilder source = new SearchSourceBuilder();
         StandardRetrieverBuilder standard0 = new StandardRetrieverBuilder();
@@ -391,7 +390,7 @@ public class RankDocRetrieverBuilderIT extends ESIntegTestCase {
         ElasticsearchAssertions.assertResponse(req, resp -> {
             assertNull(resp.pointInTimeId());
             assertNotNull(resp.getHits().getTotalHits());
-            assertThat(resp.getHits().getTotalHits().value, equalTo(5L));
+            assertThat(resp.getHits().getTotalHits().value, equalTo(6L));
             assertThat(resp.getHits().getTotalHits().relation, equalTo(TotalHits.Relation.EQUAL_TO));
             assertThat(resp.getHits().getAt(0).getId(), equalTo("doc_6"));
             assertNotNull(resp.getAggregations());
@@ -672,20 +671,12 @@ public class RankDocRetrieverBuilderIT extends ESIntegTestCase {
             for (int i = 0; i < size; i++) {
                 var hit = searchResponse.getHits().getAt(i);
                 long sortValue = (long) hit.getRawSortValues()[hit.getRawSortValues().length - 1];
-                int doc = decodeDoc(sortValue);
-                int shardRequestIndex = decodeShardRequestIndex(sortValue);
+                int doc = ShardDocSortField.decodeDoc(sortValue);
+                int shardRequestIndex = ShardDocSortField.decodeShardRequestIndex(sortValue);
                 docs[i] = new RankDoc(doc, hit.getScore(), shardRequestIndex);
                 docs[i].rank = i + 1;
             }
             return docs;
-        }
-
-        public static int decodeDoc(long value) {
-            return (int) value;
-        }
-
-        public static int decodeShardRequestIndex(long value) {
-            return (int) (value >> 32);
         }
 
         record RankDocAndHitRatio(RankDoc rankDoc, float hitRatio) {}

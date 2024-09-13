@@ -106,13 +106,20 @@ public final class StandardRetrieverBuilder extends RetrieverBuilder implements 
     Float minScore;
     CollapseBuilder collapseBuilder;
 
+    public StandardRetrieverBuilder() {}
+
+    public StandardRetrieverBuilder(QueryBuilder queryBuilder) {
+        this.queryBuilder = queryBuilder;
+    }
+
     @Override
     public QueryBuilder topDocsQuery() {
-        // TODO: for compound retrievers this will have to be reworked as queries like knn could be executed twice
         if (preFilterQueryBuilders.isEmpty()) {
-            return queryBuilder;
+            QueryBuilder qb = queryBuilder;
+            qb.queryName(this.retrieverName);
+            return qb;
         }
-        var ret = new BoolQueryBuilder().filter(queryBuilder);
+        var ret = new BoolQueryBuilder().filter(queryBuilder).queryName(this.retrieverName);
         preFilterQueryBuilders.stream().forEach(ret::filter);
         return ret;
     }
@@ -129,7 +136,6 @@ public final class StandardRetrieverBuilder extends RetrieverBuilder implements 
             if (queryBuilder != null) {
                 boolQueryBuilder.must(queryBuilder);
             }
-
             searchSourceBuilder.subSearches().add(new SubSearchSourceBuilder(boolQueryBuilder));
         } else if (queryBuilder != null) {
             searchSourceBuilder.subSearches().add(new SubSearchSourceBuilder(queryBuilder));
@@ -156,32 +162,14 @@ public final class StandardRetrieverBuilder extends RetrieverBuilder implements 
         }
 
         if (sortBuilders != null) {
-            if (compoundUsed) {
-                throw new IllegalArgumentException(
-                    "[" + SORT_FIELD.getPreferredName() + "] cannot be used in children of compound retrievers"
-                );
-            }
-
             searchSourceBuilder.sort(sortBuilders);
         }
 
         if (minScore != null) {
-            if (compoundUsed) {
-                throw new IllegalArgumentException(
-                    "[" + MIN_SCORE_FIELD.getPreferredName() + "] cannot be used in children of compound retrievers"
-                );
-            }
-
             searchSourceBuilder.minScore(minScore);
         }
 
         if (collapseBuilder != null) {
-            if (compoundUsed) {
-                throw new IllegalArgumentException(
-                    "[" + COLLAPSE_FIELD.getPreferredName() + "] cannot be used in children of compound retrievers"
-                );
-            }
-
             searchSourceBuilder.collapse(collapseBuilder);
         }
     }

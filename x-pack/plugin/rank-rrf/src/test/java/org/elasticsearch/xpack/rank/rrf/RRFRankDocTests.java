@@ -17,7 +17,12 @@ import static org.elasticsearch.xpack.rank.rrf.RRFRankDoc.NO_RANK;
 public class RRFRankDocTests extends AbstractWireSerializingTestCase<RRFRankDoc> {
 
     static RRFRankDoc createTestRRFRankDoc(int queryCount) {
-        RRFRankDoc instance = new RRFRankDoc(randomNonNegativeInt(), randomBoolean() ? -1 : randomNonNegativeInt(), queryCount);
+        RRFRankDoc instance = new RRFRankDoc(
+            randomNonNegativeInt(),
+            randomBoolean() ? -1 : randomNonNegativeInt(),
+            queryCount,
+            randomIntBetween(1, 100)
+        );
         instance.score = randomFloat();
         instance.rank = randomBoolean() ? NO_RANK : randomIntBetween(1, 10000);
         for (int qi = 0; qi < queryCount; ++qi) {
@@ -46,29 +51,46 @@ public class RRFRankDocTests extends AbstractWireSerializingTestCase<RRFRankDoc>
 
     @Override
     protected RRFRankDoc mutateInstance(RRFRankDoc instance) throws IOException {
-        RRFRankDoc mutated = new RRFRankDoc(instance.doc, instance.shardIndex, instance.positions.length);
-        mutated.score = instance.score;
-        mutated.rank = instance.rank;
-        System.arraycopy(instance.positions, 0, mutated.positions, 0, instance.positions.length);
-        System.arraycopy(instance.scores, 0, mutated.scores, 0, instance.positions.length);
-        mutated.rank = mutated.rank == NO_RANK ? randomIntBetween(1, 10000) : NO_RANK;
+        int doc = instance.doc;
         if (rarely()) {
-            int ri = randomInt(mutated.positions.length - 1);
-            mutated.positions[ri] = mutated.positions[ri] == NO_RANK ? randomIntBetween(1, 10000) : NO_RANK;
+            doc = randomNonNegativeInt();
         }
-        if (rarely()) {
-            int ri = randomInt(mutated.positions.length - 1);
-            mutated.scores[ri] = randomFloat();
-        }
-        if (rarely()) {
-            mutated.doc = randomNonNegativeInt();
-        }
-        if (rarely()) {
-            mutated.score = randomFloat();
-        }
+        int shardIndex = instance.shardIndex;
         if (frequently()) {
-            mutated.shardIndex = mutated.shardIndex == -1 ? randomNonNegativeInt() : -1;
+            shardIndex = shardIndex == -1 ? randomNonNegativeInt() : -1;
         }
+        float score = instance.score;
+        if (frequently()) {
+            score = randomFloat();
+        }
+        int rankConstant = instance.rankConstant;
+        if (frequently()) {
+            rankConstant = randomIntBetween(1, 100);
+        }
+        int rank = instance.rank;
+        if (frequently()) {
+            rank = rank == NO_RANK ? randomIntBetween(1, 10000) : NO_RANK;
+        }
+        int queries = instance.positions.length;
+        int[] positions = new int[queries];
+        float[] scores = new float[queries];
+        for (int i = 0; i < queries; i++) {
+            if (rarely()) {
+                positions[i] = instance.positions[i] == NO_RANK ? randomIntBetween(1, 10000) : NO_RANK;
+            } else {
+                positions[i] = instance.positions[i];
+            }
+            if (rarely()) {
+                scores[i] = randomFloat();
+            } else {
+                scores[i] = instance.scores[i];
+            }
+        }
+        RRFRankDoc mutated = new RRFRankDoc(doc, shardIndex, queries, rankConstant);
+        System.arraycopy(positions, 0, mutated.positions, 0, instance.positions.length);
+        System.arraycopy(scores, 0, mutated.scores, 0, instance.scores.length);
+        mutated.rank = rank;
+        mutated.score = score;
         return mutated;
     }
 

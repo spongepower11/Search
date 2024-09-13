@@ -498,6 +498,7 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
         });
         final SearchSourceBuilder source = original.source();
         if (shouldOpenPIT(source)) {
+            original.allowShardReordering(false);
             openPIT(client, original, searchService.getDefaultKeepAliveInMillis(), listener.delegateFailureAndWrap((delegate, resp) -> {
                 // We set the keep alive to -1 to indicate that we don't need the pit id in the response.
                 // This is needed since we delete the pit prior to sending the response so the id doesn't exist anymore.
@@ -519,7 +520,12 @@ public class TransportSearchAction extends HandledTransportAction<SearchRequest,
                         closePIT(client, original.source().pointInTimeBuilder(), () -> listener.onFailure(e));
                     }
                 };
-                executeRequest(task, original, pitListener, searchPhaseProvider);
+                try {
+                    executeRequest(task, original, pitListener, searchPhaseProvider);
+                } catch (Exception ex) {
+                    // if something fails during query rewrite phase, ensure that the PIT will close
+                    pitListener.onFailure(ex);
+                }
             }));
         } else {
             Rewriteable.rewriteAndFetch(

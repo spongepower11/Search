@@ -9,14 +9,13 @@
 package org.elasticsearch.search.retriever;
 
 import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.DisMaxQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryRewriteContext;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.rank.RankDoc;
+import org.elasticsearch.search.rank.RankDocsRankBuilder;
+import org.elasticsearch.search.retriever.rankdoc.RankDocsAndScoreSortBuilder;
 import org.elasticsearch.search.retriever.rankdoc.RankDocsQueryBuilder;
-import org.elasticsearch.search.retriever.rankdoc.RankDocsSortBuilder;
-import org.elasticsearch.search.sort.ScoreSortBuilder;
 import org.elasticsearch.xcontent.XContentBuilder;
 
 import java.io.IOException;
@@ -31,7 +30,7 @@ import java.util.function.Supplier;
 public class RankDocsRetrieverBuilder extends RetrieverBuilder {
 
     public static final String NAME = "rank_docs_retriever";
-    private final int rankWindowSize;
+    final int rankWindowSize;
     final List<RetrieverBuilder> sources;
     final Supplier<RankDoc[]> rankDocs;
 
@@ -79,43 +78,42 @@ public class RankDocsRetrieverBuilder extends RetrieverBuilder {
     public QueryBuilder topDocsQuery() {
         // this is used to fetch all documents form the parent retrievers (i.e. sources)
         // so that we can use all the matched documents to compute aggregations, nested hits etc
-        DisMaxQueryBuilder disMax = new DisMaxQueryBuilder().tieBreaker(0f);
+        BoolQueryBuilder boolQuery = new BoolQueryBuilder();
         for (var retriever : sources) {
             var query = retriever.topDocsQuery();
             if (query != null) {
                 if (retriever.retrieverName() != null) {
                     query.queryName(retriever.retrieverName());
                 }
-                disMax.add(query);
+                boolQuery.should(query);
             }
         }
         // ignore prefilters of this level, they are already propagated to children
-        return disMax;
+        return boolQuery;
     }
 
     @Override
     public void extractToSearchSourceBuilder(SearchSourceBuilder searchSourceBuilder, boolean compoundUsed) {
         // here we force a custom sort based on the rank of the documents
-        // TODO: should we adjust to account for other fields sort options just for the top ranked docs?
         if (searchSourceBuilder.rescores() == null || searchSourceBuilder.rescores().isEmpty()) {
-            searchSourceBuilder.sort(Arrays.asList(new RankDocsSortBuilder(rankDocs.get()), new ScoreSortBuilder()));
+            searchSourceBuilder.sort(List.of(new RankDocsAndScoreSortBuilder(rankDocs.get())));
         }
-        if (searchSourceBuilder.explain() != null && searchSourceBuilder.explain()) {
-            searchSourceBuilder.trackScores(true);
-        }
+
         BoolQueryBuilder boolQuery = new BoolQueryBuilder();
         RankDocsQueryBuilder rankQuery = new RankDocsQueryBuilder(rankDocs.get());
         // if we have aggregations we need to compute them based on all doc matches, not just the top hits
-        // so we just post-filter the top hits based on the rank queries we have
-        if (searchSourceBuilder.aggregations() != null) {
+        // similarly, for profile and explain we re-run all parent queries to get all needed information
+        if (hasAggregations(searchSourceBuilder)
+            || isExplainRequest(searchSourceBuilder)
+            || isProfileRequest(searchSourceBuilder)
+            || shouldTrackTotalHits(searchSourceBuilder)) {
             boolQuery.should(rankQuery);
             // compute a disjunction of all the query sources that were executed to compute the top rank docs
             QueryBuilder disjunctionOfSources = topDocsQuery();
             if (disjunctionOfSources != null) {
-                boolQuery.should(disjunctionOfSources);
+                boolQuery.must(disjunctionOfSources);
+                searchSourceBuilder.trackScores(true);
             }
-            // post filter the results so that the top docs are still the same
-            searchSourceBuilder.postFilter(rankQuery);
         } else {
             boolQuery.must(rankQuery);
         }
@@ -124,19 +122,38 @@ public class RankDocsRetrieverBuilder extends RetrieverBuilder {
             boolQuery.filter(preFilterQueryBuilder);
         }
         searchSourceBuilder.query(boolQuery);
+        searchSourceBuilder.rankBuilder(
+            new RankDocsRankBuilder(rankWindowSize, sources.stream().map(RetrieverBuilder::retrieverName).toList())
+        );
+    }
+
+    private boolean hasAggregations(SearchSourceBuilder searchSourceBuilder) {
+        return searchSourceBuilder.aggregations() != null;
+    }
+
+    private boolean isExplainRequest(SearchSourceBuilder searchSourceBuilder) {
+        return searchSourceBuilder.explain() != null && searchSourceBuilder.explain();
+    }
+
+    private boolean isProfileRequest(SearchSourceBuilder searchSourceBuilder) {
+        return searchSourceBuilder.profile();
+    }
+
+    private boolean shouldTrackTotalHits(SearchSourceBuilder searchSourceBuilder) {
+        return searchSourceBuilder.trackTotalHitsUpTo() == null || searchSourceBuilder.trackTotalHitsUpTo() > rankDocs.get().length;
     }
 
     @Override
     protected boolean doEquals(Object o) {
         RankDocsRetrieverBuilder other = (RankDocsRetrieverBuilder) o;
-        return Arrays.equals(rankDocs.get(), other.rankDocs.get())
-            && sources.equals(other.sources)
-            && rankWindowSize == other.rankWindowSize;
+        return rankWindowSize == other.rankWindowSize
+            && Arrays.equals(rankDocs.get(), other.rankDocs.get())
+            && sources.equals(other.sources);
     }
 
     @Override
     protected int doHashCode() {
-        return Objects.hash(super.hashCode(), Arrays.hashCode(rankDocs.get()), sources, rankWindowSize);
+        return Objects.hash(super.hashCode(), rankWindowSize, Arrays.hashCode(rankDocs.get()), sources);
     }
 
     @Override

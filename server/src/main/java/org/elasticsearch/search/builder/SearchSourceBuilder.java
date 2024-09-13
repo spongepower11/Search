@@ -2228,9 +2228,6 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             if (sorts() != null) {
                 specified.add(SORT_FIELD.getPreferredName());
             }
-            if (minScore() != null) {
-                specified.add(MIN_SCORE_FIELD.getPreferredName());
-            }
             if (rankBuilder() != null) {
                 specified.add(RANK_FIELD.getPreferredName());
             }
@@ -2330,20 +2327,9 @@ public final class SearchSourceBuilder implements Writeable, ToXContentObject, R
             if (rescores() != null && rescores().isEmpty() == false) {
                 validationException = addValidationError("[rank] cannot be used with [rescore]", validationException);
             }
-            if (sorts() != null && sorts().isEmpty() == false) {
-                validationException = addValidationError("[rank] cannot be used with [sort]", validationException);
-            }
-            if (collapse() != null) {
-                validationException = addValidationError("[rank] cannot be used with [collapse]", validationException);
-            }
+
             if (suggest() != null && suggest().getSuggestions().isEmpty() == false) {
                 validationException = addValidationError("[rank] cannot be used with [suggest]", validationException);
-            }
-            if (highlighter() != null) {
-                validationException = addValidationError("[rank] cannot be used with [highlighter]", validationException);
-            }
-            if (pointInTimeBuilder() != null) {
-                validationException = addValidationError("[rank] cannot be used with [point in time]", validationException);
             }
         }
 
