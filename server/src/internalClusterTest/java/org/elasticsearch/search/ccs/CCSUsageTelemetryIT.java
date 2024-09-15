@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.search.ccs;
@@ -32,6 +33,8 @@ import org.elasticsearch.search.builder.PointInTimeBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.query.SlowRunningQueryBuilder;
 import org.elasticsearch.search.query.ThrowingQueryBuilder;
+import org.elasticsearch.search.retriever.MinimalCompoundRetrieverIT;
+import org.elasticsearch.search.retriever.RetrieverBuilder;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.test.AbstractMultiClustersTestCase;
 import org.elasticsearch.test.InternalTestCluster;
@@ -49,6 +52,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -620,6 +624,20 @@ public class CCSUsageTelemetryIT extends AbstractMultiClustersTestCase {
         assertThat(telemetry.getSuccessCount(), equalTo(2L));
     }
 
+    public void testCompoundRetrieverSearch() throws ExecutionException, InterruptedException {
+        RetrieverBuilder compoundRetriever = new MinimalCompoundRetrieverIT.CompoundRetriever(Collections.emptyList());
+        Map<String, Object> testClusterInfo = setupClusters();
+        String localIndex = (String) testClusterInfo.get("local.index");
+        String remoteIndex = (String) testClusterInfo.get("remote.index");
+
+        SearchRequest searchRequest = makeSearchRequest(localIndex, "*:" + remoteIndex);
+        searchRequest.source(new SearchSourceBuilder().retriever(compoundRetriever));
+
+        CCSTelemetrySnapshot telemetry = getTelemetryFromSearch(searchRequest);
+        assertThat(telemetry.getTotalCount(), equalTo(1L));
+        assertThat(telemetry.getSuccessCount(), equalTo(1L));
+    }
+
     private CCSTelemetrySnapshot getTelemetrySnapshot(String nodeName) {
         var usage = cluster(LOCAL_CLUSTER).getInstance(UsageService.class, nodeName);
         return usage.getCcsUsageHolder().getCCSTelemetrySnapshot();
@@ -653,7 +671,7 @@ public class CCSUsageTelemetryIT extends AbstractMultiClustersTestCase {
             assertFalse(
                 client(clusterAlias).admin()
                     .cluster()
-                    .prepareHealth(remoteIndex)
+                    .prepareHealth(TEST_REQUEST_TIMEOUT, remoteIndex)
                     .setWaitForYellowStatus()
                     .setTimeout(TimeValue.timeValueSeconds(10))
                     .get()

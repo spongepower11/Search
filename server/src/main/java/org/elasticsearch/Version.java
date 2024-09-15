@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch;
@@ -124,6 +125,7 @@ public class Version implements VersionId<Version>, ToXContentFragment {
     public static final Version V_7_17_22 = new Version(7_17_22_99);
     public static final Version V_7_17_23 = new Version(7_17_23_99);
     public static final Version V_7_17_24 = new Version(7_17_24_99);
+    public static final Version V_7_17_25 = new Version(7_17_25_99);
 
     public static final Version V_8_0_0 = new Version(8_00_00_99);
     public static final Version V_8_0_1 = new Version(8_00_01_99);
@@ -182,6 +184,7 @@ public class Version implements VersionId<Version>, ToXContentFragment {
     public static final Version V_8_14_3 = new Version(8_14_03_99);
     public static final Version V_8_15_0 = new Version(8_15_00_99);
     public static final Version V_8_15_1 = new Version(8_15_01_99);
+    public static final Version V_8_15_2 = new Version(8_15_02_99);
     public static final Version V_8_16_0 = new Version(8_16_00_99);
     public static final Version CURRENT = V_8_16_0;
 

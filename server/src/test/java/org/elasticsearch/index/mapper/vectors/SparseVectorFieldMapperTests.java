@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.index.mapper.vectors;
@@ -111,12 +112,26 @@ public class SparseVectorFieldMapperTests extends MapperTestCase {
 
     public void testDotInFieldName() throws Exception {
         DocumentMapper mapper = createDocumentMapper(fieldMapping(this::minimalMapping));
-        DocumentParsingException ex = expectThrows(
-            DocumentParsingException.class,
-            () -> mapper.parse(source(b -> b.field("field", Map.of("politi.cs", 10, "sports", 20))))
-        );
-        assertThat(ex.getCause().getMessage(), containsString("do not support dots in feature names"));
-        assertThat(ex.getCause().getMessage(), containsString("politi.cs"));
+        ParsedDocument parsedDocument = mapper.parse(source(b -> b.field("field", Map.of("foo.bar", 10, "foobar", 20))));
+
+        List<IndexableField> fields = parsedDocument.rootDoc().getFields("field");
+        assertEquals(2, fields.size());
+        assertThat(fields.get(0), Matchers.instanceOf(FeatureField.class));
+        FeatureField featureField1 = null;
+        FeatureField featureField2 = null;
+        for (IndexableField field : fields) {
+            if (field.stringValue().equals("foo.bar")) {
+                featureField1 = (FeatureField) field;
+            } else if (field.stringValue().equals("foobar")) {
+                featureField2 = (FeatureField) field;
+            } else {
+                throw new UnsupportedOperationException();
+            }
+        }
+
+        int freq1 = getFrequency(featureField1.tokenStream(null, null));
+        int freq2 = getFrequency(featureField2.tokenStream(null, null));
+        assertTrue(freq1 < freq2);
     }
 
     public void testHandlesMultiValuedFields() throws MapperParsingException, IOException {
@@ -156,7 +171,7 @@ public class SparseVectorFieldMapperTests extends MapperTestCase {
         }));
 
         // then validate that the generate document stored both values appropriately and we have only the max value stored
-        FeatureField barField = ((FeatureField) doc1.rootDoc().getByKey("foo.field.bar"));
+        FeatureField barField = ((FeatureField) doc1.rootDoc().getByKey("foo.field\\.bar"));
         assertEquals(20, barField.getFeatureValue(), 1);
 
         FeatureField storedBarField = ((FeatureField) doc1.rootDoc().getFields("foo.field").get(1));
