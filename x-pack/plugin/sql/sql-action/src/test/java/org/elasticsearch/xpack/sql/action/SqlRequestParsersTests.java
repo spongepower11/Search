@@ -7,7 +7,6 @@
 
 package org.elasticsearch.xpack.sql.action;
 
-import org.elasticsearch.Version;
 import org.elasticsearch.core.Strings;
 import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.test.ESTestCase;
@@ -154,7 +153,9 @@ public class SqlRequestParsersTests extends ESTestCase {
         String params;
         List<SqlTypedParamValue> list = new ArrayList<>(1);
 
-        final String clientVersion = Mode.isDedicatedClient(randomMode) ? "\"version\": \"" + Version.CURRENT.toString() + "\"," : "";
+        final String clientVersion = Mode.isDedicatedClient(randomMode)
+            ? "\"version\": \"" + SqlVersionUtils.SERVER_COMPAT_VERSION + "\","
+            : "";
         if (Mode.isDriver(randomMode)) {
             params = "{\"value\":123, \"type\":\"whatever\"}";
             list.add(new SqlTypedParamValue("whatever", 123, true));
@@ -178,7 +179,7 @@ public class SqlRequestParsersTests extends ESTestCase {
         assertNull(request.clientId());
         assertEquals(randomMode, request.mode());
         if (Mode.isDedicatedClient(randomMode)) {
-            assertEquals(Version.CURRENT.toString(), request.version().toString());
+            assertEquals(SqlVersionUtils.SERVER_COMPAT_VERSION.toString(), request.version().toString());
         }
         assertEquals("whatever", request.cursor());
         assertEquals("select", request.query());
