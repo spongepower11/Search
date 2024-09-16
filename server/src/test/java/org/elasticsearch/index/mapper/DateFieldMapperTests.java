@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.index.mapper;
@@ -30,7 +31,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
@@ -183,10 +183,10 @@ public class DateFieldMapperTests extends MapperTestCase {
 
     public void testChangeLocale() throws IOException {
         DocumentMapper mapper = createDocumentMapper(
-            fieldMapping(b -> b.field("type", "date").field("format", "E, d MMM yyyy HH:mm:ss Z").field("locale", "de"))
+            fieldMapping(b -> b.field("type", "date").field("format", "E, d MMM yyyy HH:mm:ss Z").field("locale", "fr"))
         );
 
-        mapper.parse(source(b -> b.field("field", "Mi, 06 Dez 2000 02:55:00 -0800")));
+        mapper.parse(source(b -> b.field("field", "mer., 6 déc. 2000 02:55:00 -0800")));
     }
 
     public void testNullValue() throws IOException {
@@ -675,20 +675,7 @@ public class DateFieldMapperTests extends MapperTestCase {
 
             @Override
             public List<SyntheticSourceInvalidExample> invalidExample() throws IOException {
-                List<SyntheticSourceInvalidExample> examples = new ArrayList<>();
-                for (String fieldType : new String[] { "date", "date_nanos" }) {
-                    examples.add(
-                        new SyntheticSourceInvalidExample(
-                            equalTo(
-                                "field [field] of type ["
-                                    + fieldType
-                                    + "] doesn't support synthetic source because it doesn't have doc values"
-                            ),
-                            b -> b.field("type", fieldType).field("doc_values", false)
-                        )
-                    );
-                }
-                return examples;
+                return List.of();
             }
         };
     }

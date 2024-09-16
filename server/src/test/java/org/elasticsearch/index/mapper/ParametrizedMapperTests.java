@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.index.mapper;
@@ -176,7 +177,7 @@ public class ParametrizedMapperTests extends MapperServiceTestCase {
 
         @Override
         public FieldMapper build(MapperBuilderContext context) {
-            return new TestMapper(leafName(), context.buildFullName(leafName()), multiFieldsBuilder.build(this, context), copyTo, this);
+            return new TestMapper(leafName(), context.buildFullName(leafName()), builderParams(this, context), this);
         }
     }
 
@@ -205,14 +206,8 @@ public class ParametrizedMapperTests extends MapperServiceTestCase {
         private final DummyEnumType enumField;
         private final DummyEnumType restrictedEnumField;
 
-        protected TestMapper(
-            String simpleName,
-            String fullName,
-            MultiFields multiFields,
-            CopyTo copyTo,
-            ParametrizedMapperTests.Builder builder
-        ) {
-            super(simpleName, new KeywordFieldMapper.KeywordFieldType(fullName), multiFields, copyTo);
+        protected TestMapper(String simpleName, String fullName, BuilderParams builderParams, ParametrizedMapperTests.Builder builder) {
+            super(simpleName, new KeywordFieldMapper.KeywordFieldType(fullName), builderParams);
             this.fixed = builder.fixed.getValue();
             this.fixed2 = builder.fixed2.getValue();
             this.variable = builder.variable.getValue();
@@ -431,6 +426,28 @@ public class ParametrizedMapperTests extends MapperServiceTestCase {
         );
         assertEquals("""
             {"field":{"type":"test_mapper","variable":"updated","required":"value"}}""", Strings.toString(noCopyTo));
+    }
+
+    public void testStoredSource() {
+        String mapping = """
+            {"type":"test_mapper","variable":"foo","required":"value","synthetic_source_keep":"none"}""";
+        TestMapper mapper = fromMapping(mapping);
+        assertEquals("{\"field\":" + mapping + "}", Strings.toString(mapper));
+
+        mapping = """
+            {"type":"test_mapper","variable":"foo","required":"value","synthetic_source_keep":"arrays"}""";
+        mapper = fromMapping(mapping);
+        assertEquals("{\"field\":" + mapping + "}", Strings.toString(mapper));
+
+        mapping = """
+            {"type":"test_mapper","variable":"foo","required":"value","synthetic_source_keep":"all"}""";
+        mapper = fromMapping(mapping);
+        assertEquals("{\"field\":" + mapping + "}", Strings.toString(mapper));
+
+        String mappingThrows = """
+            {"type":"test_mapper","variable":"foo","required":"value","synthetic_source_keep":"no-such-value"}""";
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> fromMapping(mappingThrows));
+        assertEquals("Unknown synthetic_source_keep value [no-such-value], accepted values are [none,arrays,all]", e.getMessage());
     }
 
     public void testNullables() {

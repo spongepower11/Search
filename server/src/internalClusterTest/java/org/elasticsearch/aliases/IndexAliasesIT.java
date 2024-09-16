@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.aliases;
@@ -202,7 +203,7 @@ public class IndexAliasesIT extends ESIntegTestCase {
 
         // For now just making sure that filter was stored with the alias
         logger.info("--> making sure that filter was stored with alias [alias1] and filter [user:kimchy]");
-        ClusterState clusterState = admin().cluster().prepareState().get().getState();
+        ClusterState clusterState = admin().cluster().prepareState(TEST_REQUEST_TIMEOUT).get().getState();
         IndexMetadata indexMd = clusterState.metadata().index("test");
         assertThat(indexMd.getAliases().get("alias1").filter().string(), equalTo("""
             {"term":{"user":{"value":"kimchy"}}}"""));
@@ -1416,21 +1417,33 @@ public class IndexAliasesIT extends ESIntegTestCase {
 
     private void assertAliasesVersionIncreases(final String[] indices, final Runnable runnable) {
         final var beforeAliasesVersions = new HashMap<String, Long>(indices.length);
-        final var beforeMetadata = admin().cluster().prepareState().get().getState().metadata();
+        final var beforeMetadata = admin().cluster().prepareState(TEST_REQUEST_TIMEOUT).get().getState().metadata();
         for (final var index : indices) {
             beforeAliasesVersions.put(index, beforeMetadata.index(index).getAliasesVersion());
         }
         runnable.run();
-        final var afterMetadata = admin().cluster().prepareState().get().getState().metadata();
+        final var afterMetadata = admin().cluster().prepareState(TEST_REQUEST_TIMEOUT).get().getState().metadata();
         for (final String index : indices) {
             assertThat(afterMetadata.index(index).getAliasesVersion(), equalTo(1 + beforeAliasesVersions.get(index)));
         }
     }
 
     private void assertAliasesVersionUnchanged(final String index, final Runnable runnable) {
-        final long beforeAliasesVersion = admin().cluster().prepareState().get().getState().metadata().index(index).getAliasesVersion();
+        final long beforeAliasesVersion = admin().cluster()
+            .prepareState(TEST_REQUEST_TIMEOUT)
+            .get()
+            .getState()
+            .metadata()
+            .index(index)
+            .getAliasesVersion();
         runnable.run();
-        final long afterAliasesVersion = admin().cluster().prepareState().get().getState().metadata().index(index).getAliasesVersion();
+        final long afterAliasesVersion = admin().cluster()
+            .prepareState(TEST_REQUEST_TIMEOUT)
+            .get()
+            .getState()
+            .metadata()
+            .index(index)
+            .getAliasesVersion();
         assertThat(afterAliasesVersion, equalTo(beforeAliasesVersion));
     }
 

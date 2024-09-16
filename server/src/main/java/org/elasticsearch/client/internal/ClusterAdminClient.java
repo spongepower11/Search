@@ -1,9 +1,10 @@
 /*
  * Copyright Elasticsearch B.V. and/or licensed to Elasticsearch B.V. under one
- * or more contributor license agreements. Licensed under the Elastic License
- * 2.0 and the Server Side Public License, v 1; you may not use this file except
- * in compliance with, at your election, the Elastic License 2.0 or the Server
- * Side Public License, v 1.
+ * or more contributor license agreements. Licensed under the "Elastic License
+ * 2.0", the "GNU Affero General Public License v3.0 only", and the "Server Side
+ * Public License v 1"; you may not use this file except in compliance with, at
+ * your election, the "Elastic License 2.0", the "GNU Affero General Public
+ * License v3.0 only", or the "Server Side Public License, v 1".
  */
 
 package org.elasticsearch.client.internal;
@@ -158,8 +159,8 @@ public class ClusterAdminClient implements ElasticsearchClient {
         execute(TransportClusterHealthAction.TYPE, request, listener);
     }
 
-    public ClusterHealthRequestBuilder prepareHealth(String... indices) {
-        return new ClusterHealthRequestBuilder(this).setIndices(indices);
+    public ClusterHealthRequestBuilder prepareHealth(TimeValue masterNodeTimeout, String... indices) {
+        return new ClusterHealthRequestBuilder(this, masterNodeTimeout).setIndices(indices);
     }
 
     public ActionFuture<ClusterStateResponse> state(final ClusterStateRequest request) {
@@ -170,8 +171,8 @@ public class ClusterAdminClient implements ElasticsearchClient {
         execute(ClusterStateAction.INSTANCE, request, listener);
     }
 
-    public ClusterStateRequestBuilder prepareState() {
-        return new ClusterStateRequestBuilder(this);
+    public ClusterStateRequestBuilder prepareState(TimeValue masterNodeTimeout) {
+        return new ClusterStateRequestBuilder(this, masterNodeTimeout);
     }
 
     public ActionFuture<ClusterUpdateSettingsResponse> updateSettings(final ClusterUpdateSettingsRequest request) {
@@ -182,8 +183,8 @@ public class ClusterAdminClient implements ElasticsearchClient {
         execute(ClusterUpdateSettingsAction.INSTANCE, request, listener);
     }
 
-    public ClusterUpdateSettingsRequestBuilder prepareUpdateSettings() {
-        return new ClusterUpdateSettingsRequestBuilder(this);
+    public ClusterUpdateSettingsRequestBuilder prepareUpdateSettings(TimeValue masterNodeTimeout, TimeValue ackTimeout) {
+        return new ClusterUpdateSettingsRequestBuilder(this, masterNodeTimeout, ackTimeout);
     }
 
     public ActionFuture<NodesInfoResponse> nodesInfo(final NodesInfoRequest request) {
