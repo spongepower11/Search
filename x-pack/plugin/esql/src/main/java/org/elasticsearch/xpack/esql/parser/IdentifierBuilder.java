@@ -8,7 +8,11 @@
 package org.elasticsearch.xpack.esql.parser;
 
 import org.antlr.v4.runtime.tree.TerminalNode;
+import org.elasticsearch.ElasticsearchParseException;
+import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
+import org.elasticsearch.cluster.metadata.MetadataCreateIndexService;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.indices.InvalidIndexNameException;
 import org.elasticsearch.xpack.esql.parser.EsqlBaseParser.IdentifierContext;
 import org.elasticsearch.xpack.esql.parser.EsqlBaseParser.IndexStringContext;
 
@@ -16,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.elasticsearch.transport.RemoteClusterAware.REMOTE_CLUSTER_INDEX_SEPARATOR;
+import static org.elasticsearch.xpack.esql.parser.ParserUtils.source;
 
 abstract class IdentifierBuilder extends AbstractBuilder {
 
@@ -48,10 +53,32 @@ abstract class IdentifierBuilder extends AbstractBuilder {
         List<String> patterns = new ArrayList<>(ctx.size());
         ctx.forEach(c -> {
             String indexPattern = visitIndexString(c.indexString());
+            validateIndexPattern(indexPattern, c);
             patterns.add(
                 c.clusterString() != null ? c.clusterString().getText() + REMOTE_CLUSTER_INDEX_SEPARATOR + indexPattern : indexPattern
             );
         });
         return Strings.collectionToDelimitedString(patterns, ",");
+    }
+
+    private static void validateIndexPattern(String indexPattern, EsqlBaseParser.IndexPatternContext ctx) {
+        String[] indices = indexPattern.replace("*", "").split(",");
+        try {
+            for (String index : indices) {
+                if (index.isBlank()) {
+                    continue;
+                }
+                index = removeExclusion(index.strip());
+                String temp = IndexNameExpressionResolver.resolveDateMathExpression(index);
+                index = temp.equals(index) ? index : removeExclusion(temp);
+                MetadataCreateIndexService.validateIndexOrAliasName(index, InvalidIndexNameException::new);
+            }
+        } catch (InvalidIndexNameException | ElasticsearchParseException e) {
+            throw new ParsingException(e, source(ctx), e.getMessage());
+        }
+    }
+
+    private static String removeExclusion(String indexPattern) {
+        return indexPattern.charAt(0) == '-' ? indexPattern.substring(1) : indexPattern;
     }
 }

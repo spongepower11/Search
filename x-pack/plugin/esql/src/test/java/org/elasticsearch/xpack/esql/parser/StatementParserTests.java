@@ -379,24 +379,16 @@ public class StatementParserTests extends AbstractStatementParserTests {
                 "<logstash-{now/M{yyyy.MM}}>,<logstash-{now/d{yyyy.MM.dd|+12:00}}>",
                 command + " <logstash-{now/M{yyyy.MM}}>, \"<logstash-{now/d{yyyy.MM.dd|+12:00}}>\""
             );
-
             assertStringAsIndexPattern("foo,test,xyz", command + " \"\"\"foo\"\"\",   test,\"xyz\"");
-
             assertStringAsIndexPattern("`backtick`,``multiple`back``ticks```", command + " `backtick`, ``multiple`back``ticks```");
-
             assertStringAsIndexPattern("test,metadata,metaata,.metadata", command + " test,\"metadata\", metaata, .metadata");
-
             assertStringAsIndexPattern(".dot", command + " .dot");
-
             assertStringAsIndexPattern("cluster:index", command + " cluster:index");
-            assertStringAsIndexPattern("cluster:index|pattern", command + " cluster:\"index|pattern\"");
             assertStringAsIndexPattern("cluster:.index", command + " cluster:.index");
             assertStringAsIndexPattern("cluster*:index*", command + " cluster*:index*");
             assertStringAsIndexPattern("cluster*:*", command + " cluster*:*");
             assertStringAsIndexPattern("*:index*", command + " *:index*");
-            assertStringAsIndexPattern("*:index|pattern", command + " *:\"index|pattern\"");
             assertStringAsIndexPattern("*:*", command + " *:*");
-            assertStringAsIndexPattern("*:*,cluster*:index|pattern,i|p", command + " *:*, cluster*:\"index|pattern\", \"i|p\"");
         }
     }
 
@@ -418,19 +410,45 @@ public class StatementParserTests extends AbstractStatementParserTests {
         );
 
         assertStringAsLookupIndexPattern("foo", "ROW x = 1 | LOOKUP \"\"\"foo\"\"\" ON j");
-
         assertStringAsLookupIndexPattern("`backtick`", "ROW x = 1 | LOOKUP `backtick` ON j");
         assertStringAsLookupIndexPattern("``multiple`back``ticks```", "ROW x = 1 | LOOKUP ``multiple`back``ticks``` ON j");
-
         assertStringAsLookupIndexPattern(".dot", "ROW x = 1 | LOOKUP .dot ON j");
-
         assertStringAsLookupIndexPattern("cluster:index", "ROW x = 1 | LOOKUP cluster:index ON j");
         assertStringAsLookupIndexPattern("cluster:.index", "ROW x = 1 | LOOKUP cluster:.index ON j");
         assertStringAsLookupIndexPattern("cluster*:index*", "ROW x = 1 | LOOKUP cluster*:index* ON j");
         assertStringAsLookupIndexPattern("cluster*:*", "ROW x = 1 | LOOKUP cluster*:* ON j");
         assertStringAsLookupIndexPattern("*:index*", "ROW x = 1 | LOOKUP  *:index* ON j");
         assertStringAsLookupIndexPattern("*:*", "ROW x = 1 | LOOKUP  *:* ON j");
+    }
 
+    public void testInvalidCharacterInIndexPattern() {
+        for (String command : List.of("FROM {}", "METRICS {}", "ROW x = 1 | LOOKUP {} ON j")) {
+            expectError(command, " cluster:\"index|pattern\"", "Invalid index name [index|pattern]");
+            expectError(command, " *:\"index|pattern\"", "Invalid index name [index|pattern]");
+            expectError(command, " cluster:\"index#pattern\"", "Invalid index name [index#pattern]");
+            expectError(command, " cluster:index#pattern", "Invalid index name [index#pattern]");
+            expectError(command, " cluster:\"index pattern\"", "Invalid index name [index pattern]");
+            expectError(command, " cluster:\"index?pattern\"", "Invalid index name [index?pattern]");
+            expectError(command, " cluster:index?pattern", "Invalid index name [index?pattern]");
+            expectError(command, " cluster:\"index>pattern\"", "Invalid index name [index>pattern]");
+            expectError(command, " cluster:index>pattern", "Invalid index name [index>pattern]");
+            expectError(command, " cluster:\"index<pattern\"", "Invalid index name [index<pattern]");
+            expectError(command, " cluster:index<pattern", "Invalid index name [index<pattern]");
+            expectError(command, " cluster:\"index/pattern\"", "Invalid index name [index/pattern]");
+            expectError(command, " cluster:index/pattern", "Invalid index name [index/pattern]");
+            expectError(command, " cluster:\"index\\\\pattern\"", "Invalid index name [index\\pattern]");
+            expectError(command, " cluster:index\\pattern", "Invalid index name [index\\pattern]");
+            expectError(command, " cluster:\"..\"", "Invalid index name [..]");
+            expectError(command, " cluster:..", "Invalid index name [..]");
+            expectError(command, " cluster:\"_indexpattern\"", "Invalid index name [_indexpattern]");
+            expectError(command, " cluster:_indexpattern", "Invalid index name [_indexpattern]");
+            expectError(command, " cluster:\"+indexpattern\"", "Invalid index name [+indexpattern]");
+            expectError(command, " cluster:+indexpattern", "Invalid index name [+indexpattern]");
+            expectError(command, " cluster:\"--indexpattern\"", "Invalid index name [-indexpattern]");
+            expectError(command, " cluster:--indexpattern", "Invalid index name [-indexpattern]");
+            expectError(command, " cluster:\"<--logstash-{now/M{yyyy.MM}}>\"", "Invalid index name [-logstash-");
+            expectError(command, "  --<logstash-{now/M{yyyy.MM}}>", "Invalid index name [-<logstash-{now/M{yyyy.MM}}>]");
+        }
     }
 
     public void testInvalidQuotingAsFromIndexPattern() {
@@ -1582,7 +1600,7 @@ public class StatementParserTests extends AbstractStatementParserTests {
             Map.entry("metrics foo,test-*", "foo,test-*"),
             Map.entry("metrics 123-test@foo_bar+baz1", "123-test@foo_bar+baz1"),
             Map.entry("metrics foo,   test,xyz", "foo,test,xyz"),
-            Map.entry("metrics <logstash-{now/M{yyyy.MM}}>>", "<logstash-{now/M{yyyy.MM}}>>")
+            Map.entry("metrics <logstash-{now/M{yyyy.MM}}>", "<logstash-{now/M{yyyy.MM}}>")
         );
         for (Map.Entry<String, String> e : patterns.entrySet()) {
             assertStatement(e.getKey(), unresolvedRelation(e.getValue()));
