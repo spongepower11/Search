@@ -277,6 +277,7 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                     plan.source(),
                     policyName,
                     mappingAsAttributes(plan.source(), resolved.mapping()),
+                    plan.qualifier(),
                     plan.enrichFields(),
                     policy
                 );
@@ -288,12 +289,23 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                     matchField,
                     policy,
                     resolved.concreteIndices(),
+                    plan.qualifier(),
                     enrichFields
                 );
             } else {
                 String error = context.enrichResolution().getError(policyName, plan.mode());
                 var policyNameExp = new UnresolvedAttribute(plan.policyName().source(), policyName, error);
-                return new Enrich(plan.source(), plan.child(), plan.mode(), policyNameExp, plan.matchField(), null, Map.of(), List.of());
+                return new Enrich(
+                    plan.source(),
+                    plan.child(),
+                    plan.mode(),
+                    policyNameExp,
+                    plan.matchField(),
+                    null,
+                    Map.of(),
+                    plan.qualifier(),
+                    List.of()
+                );
             }
         }
 
@@ -301,6 +313,7 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
             Source source,
             String policyName,
             List<Attribute> mapping,
+            String qualifier,
             List<NamedExpression> enrichFields,
             EnrichPolicy policy
         ) {
@@ -312,12 +325,14 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
             if (enrichFields == null || enrichFields.isEmpty()) {
                 // use the policy to infer the enrich fields
                 for (String enrichFieldName : policy.getEnrichFields()) {
-                    result.add(createEnrichFieldExpression(source, policyName, fieldMap, enrichFieldName));
+                    NamedExpression field = createEnrichFieldExpression(source, policyName, fieldMap, enrichFieldName);
+                    result.add(qualifier == null ? field : new Alias(source, qualifier + "." + enrichFieldName, field));
                 }
             } else {
                 for (NamedExpression enrichField : enrichFields) {
                     String enrichFieldName = Expressions.name(enrichField instanceof Alias a ? a.child() : enrichField);
                     NamedExpression field = createEnrichFieldExpression(source, policyName, fieldMap, enrichFieldName);
+                    // TODO: qualifier in case of WITH (but without explicit aliases)
                     result.add(enrichField instanceof Alias a ? new Alias(a.source(), a.name(), field) : field);
                 }
             }
@@ -559,8 +574,7 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                                         + joinedAttribute.dataType().typeName()
                                         + "] and original column was ["
                                         + attr.dataType().typeName()
-                                        + "]",
-                                    null
+                                        + "]"
                                 );
                             }
                         }
@@ -798,7 +812,11 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
         }
 
         private LogicalPlan resolveEnrich(Enrich enrich, List<Attribute> childrenOutput) {
-
+            // TODO: csv test with shadowing WITH qualifier
+            // TODO: TEST validation error if we're trying to address a qualified name implicitly (in the unambiguous case)
+            // | ENRICH policy AS p
+            // but there's an existing field p.foo, and the policy has an enrich field called foo (which would be qualified to p.foo,
+            // conflicting with the existing field).
             if (enrich.matchField().toAttribute() instanceof UnresolvedAttribute ua) {
                 Attribute resolved = maybeResolveAttribute(ua, childrenOutput);
                 if (resolved.equals(ua)) {
@@ -832,6 +850,7 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
                     resolved,
                     enrich.policy(),
                     enrich.concreteIndices(),
+                    enrich.qualifier(),
                     enrich.enrichFields()
                 );
             }
@@ -848,14 +867,74 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
 
     private static List<Attribute> resolveAgainstList(UnresolvedNamePattern up, Collection<Attribute> attrList) {
         UnresolvedAttribute ua = new UnresolvedAttribute(up.source(), up.pattern());
-        Predicate<Attribute> matcher = a -> up.match(a.name());
-        var matches = AnalyzerRules.maybeResolveAgainstList(matcher, () -> ua, attrList, true, a -> Analyzer.handleSpecialFields(ua, a));
-        return potentialCandidatesIfNoMatchesFound(ua, matches, attrList, list -> UnresolvedNamePattern.errorMessage(up.pattern(), list));
+        return resolveAgainstList(
+            a -> up.match(a.name()),
+            ua,
+            attrList,
+            true,
+            list -> UnresolvedNamePattern.errorMessage(up.pattern(), list)
+        );
     }
 
     private static List<Attribute> resolveAgainstList(UnresolvedAttribute ua, Collection<Attribute> attrList) {
-        var matches = AnalyzerRules.maybeResolveAgainstList(ua, attrList, a -> Analyzer.handleSpecialFields(ua, a));
-        return potentialCandidatesIfNoMatchesFound(ua, matches, attrList, list -> UnresolvedAttribute.errorMessage(ua.name(), list));
+        return resolveAgainstList(
+            a -> a.name().equals(ua.name()),
+            ua,
+            attrList,
+            false,
+            list -> UnresolvedAttribute.errorMessage(ua.name(), list)
+        );
+    }
+
+    private static List<Attribute> resolveAgainstList(
+        Predicate<Attribute> match,
+        UnresolvedAttribute ua,
+        Collection<Attribute> attrList,
+        boolean isPattern,
+        Function<List<String>, String> messageProducer
+    ) {
+        List<Attribute> matches = maybeResolveAgainstList(match, ua, attrList, isPattern);
+        return potentialCandidatesIfNoMatchesFound(ua, matches, attrList, messageProducer);
+    }
+
+    /**
+     * Take an {@link UnresolvedAttribute} and find matching attributes in a given collection of attributes.
+     * Throws {@link IllegalArgumentException} if we fail to resolve.
+     * <p>
+     * If {@code matchExactly} is not {@code null}, it will be used to narrow down multiple matches found with {@code matchLoosely}.
+     * This allows predicates that match a field name {@code b} to a qualified field {@code a.b} if there's no other fields ending in
+     * {@code .b} (loose match), while still matching {@code b} correctly if there's both fields {@code a.b} and {@code b} present
+     * (exact match).
+     * <p>
+     * Regardless of {@code matchLoosely} and {@code matchExactly}, {@link Attribute}s for which {@link Attribute#synthetic()} is true are
+     * never resolved against.
+     */
+    private static List<Attribute> maybeResolveAgainstList(
+        Predicate<Attribute> match,
+        UnresolvedAttribute unresolved,
+        Collection<Attribute> attrList,
+        boolean allowMultipleMatches
+    ) {
+        List<Attribute> matches = attrList.stream().filter(a -> a.synthetic() == false && match.test(a)).toList();
+
+        if (matches.isEmpty()) {
+            return matches;
+        }
+
+        // found exact match or multiple if pattern
+        if (matches.size() == 1 || allowMultipleMatches) {
+            // NB: only add the location if the match is univocal; b/c otherwise adding the location will overwrite any preexisting one
+            return matches.stream().map(a -> a.withLocation(unresolved.source())).toList();
+        }
+
+        // report ambiguity
+        List<String> refs = matches.stream().sorted((a, b) -> {
+            int lineDiff = a.sourceLocation().getLineNumber() - b.sourceLocation().getLineNumber();
+            int colDiff = a.sourceLocation().getColumnNumber() - b.sourceLocation().getColumnNumber();
+            return lineDiff != 0 ? lineDiff : (colDiff != 0 ? colDiff : a.name().compareTo(b.name()));
+        }).map(a -> "line " + a.sourceLocation().toString().substring(1) + " [" + a.name() + "]").toList();
+
+        throw new IllegalStateException("Reference [" + unresolved.name() + "] is ambiguous; " + "matches any of " + refs);
     }
 
     private static List<Attribute> potentialCandidatesIfNoMatchesFound(
@@ -881,10 +960,6 @@ public class Analyzer extends ParameterizedRuleExecutor<LogicalPlan, AnalyzerCon
             matches = singletonList(unresolved);
         }
         return matches;
-    }
-
-    private static Attribute handleSpecialFields(UnresolvedAttribute u, Attribute named) {
-        return named.withLocation(u.source());
     }
 
     private static class ResolveFunctions extends ParameterizedAnalyzerRule<LogicalPlan, AnalyzerContext> {

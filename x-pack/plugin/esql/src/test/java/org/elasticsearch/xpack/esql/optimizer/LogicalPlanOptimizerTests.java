@@ -4220,6 +4220,7 @@ public class LogicalPlanOptimizerTests extends ESTestCase {
                 attr,
                 null,
                 Map.of(),
+                null,
                 List.of(
                     new Alias(EMPTY, "y", new ReferenceAttribute(EMPTY, "some_enrich_idx_field", KEYWORD)),
                     new Alias(EMPTY, "y", new ReferenceAttribute(EMPTY, "some_other_enrich_idx_field", KEYWORD))

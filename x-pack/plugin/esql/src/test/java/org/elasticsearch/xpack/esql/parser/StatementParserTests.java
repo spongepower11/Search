@@ -848,6 +848,7 @@ public class StatementParserTests extends AbstractStatementParserTests {
                 new EmptyAttribute(EMPTY),
                 null,
                 Map.of(),
+                null,
                 List.of()
             ),
             processingCommand("enrich countries")
@@ -862,6 +863,7 @@ public class StatementParserTests extends AbstractStatementParserTests {
                 new UnresolvedAttribute(EMPTY, "field_underscore"),
                 null,
                 Map.of(),
+                null,
                 List.of()
             ),
             processingCommand("enrich index-policy ON field_underscore")
@@ -877,6 +879,7 @@ public class StatementParserTests extends AbstractStatementParserTests {
                 new UnresolvedAttribute(EMPTY, "country_code"),
                 null,
                 Map.of(),
+                null,
                 List.of()
             ),
             processingCommand("enrich _" + mode.name() + ":countries ON country_code")
@@ -896,6 +899,9 @@ public class StatementParserTests extends AbstractStatementParserTests {
             "from a | enrich typo:countries on foo",
             "line 1:18: Unrecognized value [typo], ENRICH policy qualifier needs to be one of [_ANY, _COORDINATOR, _REMOTE]"
         );
+
+        // TODO: add cases with qualifier/AS clause
+        // Esp. consider validation of legal/illegal qualifier strings
     }
 
     public void testMvExpand() {
