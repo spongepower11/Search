@@ -9,16 +9,21 @@
 
 package org.elasticsearch.action.admin.cluster.stats;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.lucene.store.AlreadyClosedException;
 import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.ActionType;
 import org.elasticsearch.action.FailedNodeException;
 import org.elasticsearch.action.admin.cluster.node.info.NodeInfo;
 import org.elasticsearch.action.admin.cluster.node.stats.NodeStats;
+import org.elasticsearch.action.admin.cluster.stats.ClusterStatsResponse.RemoteClusterStats;
 import org.elasticsearch.action.admin.indices.stats.CommonStats;
 import org.elasticsearch.action.admin.indices.stats.CommonStatsFlags;
 import org.elasticsearch.action.admin.indices.stats.ShardStats;
 import org.elasticsearch.action.support.ActionFilters;
+import org.elasticsearch.action.support.CancellableFanOut;
+import org.elasticsearch.action.support.SubscribableListener;
 import org.elasticsearch.action.support.nodes.TransportNodesAction;
 import org.elasticsearch.cluster.ClusterSnapshotStats;
 import org.elasticsearch.cluster.ClusterState;
@@ -29,7 +34,9 @@ import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
+import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.CancellableSingleObjectCache;
+import org.elasticsearch.common.util.FeatureFlag;
 import org.elasticsearch.common.util.concurrent.ListenableFuture;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.core.UpdateForV9;
@@ -46,6 +53,9 @@ import org.elasticsearch.tasks.CancellableTask;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.tasks.TaskId;
 import org.elasticsearch.threadpool.ThreadPool;
+import org.elasticsearch.transport.RemoteClusterConnection;
+import org.elasticsearch.transport.RemoteClusterService;
+import org.elasticsearch.transport.RemoteConnectionInfo;
 import org.elasticsearch.transport.TransportRequest;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.transport.Transports;
@@ -54,11 +64,18 @@ import org.elasticsearch.usage.UsageService;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
 
+/**
+ * Transport action implementing _cluster/stats API.
+ */
 public class TransportClusterStatsAction extends TransportNodesAction<
     ClusterStatsRequest,
     ClusterStatsResponse,
@@ -66,6 +83,8 @@ public class TransportClusterStatsAction extends TransportNodesAction<
     ClusterStatsNodeResponse> {
 
     public static final ActionType<ClusterStatsResponse> TYPE = new ActionType<>("cluster:monitor/stats");
+
+    public static final FeatureFlag CCS_TELEMETRY_FEATURE_FLAG = new FeatureFlag("ccs_telemetry");
     private static final CommonStatsFlags SHARD_STATS_FLAGS = new CommonStatsFlags(
         CommonStatsFlags.Flag.Docs,
         CommonStatsFlags.Flag.Store,
@@ -76,15 +95,18 @@ public class TransportClusterStatsAction extends TransportNodesAction<
         CommonStatsFlags.Flag.DenseVector,
         CommonStatsFlags.Flag.SparseVector
     );
+    private static final Logger logger = LogManager.getLogger(TransportClusterStatsAction.class);
 
+    private final Settings settings;
     private final NodeService nodeService;
     private final IndicesService indicesService;
     private final RepositoriesService repositoriesService;
     private final SearchUsageHolder searchUsageHolder;
     private final CCSUsageTelemetry ccsUsageHolder;
-
     private final MetadataStatsCache<MappingStats> mappingStatsCache;
     private final MetadataStatsCache<AnalysisStats> analysisStatsCache;
+    private final RemoteClusterService remoteClusterService;
+    private final TransportRemoteClusterStatsAction remoteClusterStatsAction;
 
     @Inject
     public TransportClusterStatsAction(
@@ -95,7 +117,9 @@ public class TransportClusterStatsAction extends TransportNodesAction<
         IndicesService indicesService,
         RepositoriesService repositoriesService,
         UsageService usageService,
-        ActionFilters actionFilters
+        ActionFilters actionFilters,
+        Settings settings,
+        TransportRemoteClusterStatsAction remoteClusterStatsAction
     ) {
         super(
             TYPE.name(),
@@ -112,6 +136,14 @@ public class TransportClusterStatsAction extends TransportNodesAction<
         this.ccsUsageHolder = usageService.getCcsUsageHolder();
         this.mappingStatsCache = new MetadataStatsCache<>(threadPool.getThreadContext(), MappingStats::of);
         this.analysisStatsCache = new MetadataStatsCache<>(threadPool.getThreadContext(), AnalysisStats::of);
+        this.remoteClusterService = transportService.getRemoteClusterService();
+        this.settings = settings;
+        this.remoteClusterStatsAction = remoteClusterStatsAction;
+    }
+
+    @Override
+    protected void doExecute(Task task, ClusterStatsRequest request, ActionListener<ClusterStatsResponse> listener) {
+        super.doExecute(task, request, new ActionListenerWithRemotes(task, request, listener));
     }
 
     @Override
@@ -128,6 +160,13 @@ public class TransportClusterStatsAction extends TransportNodesAction<
         );
         assert ThreadPool.assertCurrentThreadPool(ThreadPool.Names.MANAGEMENT);
         assert task instanceof CancellableTask;
+        assert listener instanceof ActionListenerWithRemotes;
+
+        if (request.isRemoteStats()) {
+            newRemoteResponseAsync(responses, listener);
+            return;
+        }
+
         final CancellableTask cancellableTask = (CancellableTask) task;
         final ClusterState state = clusterService.state();
         final Metadata metadata = state.metadata();
@@ -136,32 +175,59 @@ public class TransportClusterStatsAction extends TransportNodesAction<
             clusterService.threadPool().absoluteTimeInMillis()
         );
 
+        var remoteClusterStatsListener = ((ActionListenerWithRemotes) listener).getRemoteClusterStats();
+
         final ListenableFuture<MappingStats> mappingStatsStep = new ListenableFuture<>();
         final ListenableFuture<AnalysisStats> analysisStatsStep = new ListenableFuture<>();
         mappingStatsCache.get(metadata, cancellableTask::isCancelled, mappingStatsStep);
         analysisStatsCache.get(metadata, cancellableTask::isCancelled, analysisStatsStep);
+
         mappingStatsStep.addListener(
             listener.delegateFailureAndWrap(
                 (l, mappingStats) -> analysisStatsStep.addListener(
                     l.delegateFailureAndWrap(
-                        (ll, analysisStats) -> ActionListener.completeWith(
-                            ll,
-                            () -> new ClusterStatsResponse(
-                                System.currentTimeMillis(),
-                                metadata.clusterUUID(),
-                                clusterService.getClusterName(),
-                                responses,
-                                failures,
-                                mappingStats,
-                                analysisStats,
-                                VersionStats.of(metadata, responses),
-                                clusterSnapshotStats
+                        (ll, analysisStats) -> remoteClusterStatsListener.<ClusterStatsResponse>andThen(
+                            (delegate, remoteClusterStats) -> delegate.onResponse(
+                                new ClusterStatsResponse(
+                                    System.currentTimeMillis(),
+                                    metadata.clusterUUID(),
+                                    clusterService.getClusterName(),
+                                    responses,
+                                    failures,
+                                    mappingStats,
+                                    analysisStats,
+                                    VersionStats.of(metadata, responses),
+                                    clusterSnapshotStats,
+                                    remoteClusterStats
+                                )
                             )
-                        )
+                        ).addListener(ll)
                     )
                 )
             )
         );
+    }
+
+    /**
+     * Return stripped down stats for remote clusters.
+     */
+    private void newRemoteResponseAsync(
+        final List<ClusterStatsNodeResponse> responses,
+        final ActionListener<ClusterStatsResponse> listener
+    ) {
+        ClusterStatsResponse response = new ClusterStatsResponse(
+            System.currentTimeMillis(),
+            clusterService.state().metadata().clusterUUID(),
+            clusterService.getClusterName(),
+            responses,
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            Map.of()
+        );
+        listener.onResponse(response);
     }
 
     @Override
@@ -311,6 +377,121 @@ public class TransportClusterStatsAction extends TransportNodesAction<
         @Override
         protected boolean isFresh(Long currentKey, Long newKey) {
             return newKey <= currentKey;
+        }
+    }
+
+    private static boolean doRemotes(ClusterStatsRequest request) {
+        return CCS_TELEMETRY_FEATURE_FLAG.isEnabled() && request.doRemotes();
+    }
+
+    private class RemoteStatsFanout extends CancellableFanOut<String, RemoteClusterStatsResponse, Map<String, RemoteClusterStats>> {
+        private final ClusterStatsRequest request;
+        private final Map<String, RemoteClusterStatsResponse> responses = new ConcurrentHashMap<>();
+        private final Executor requestExecutor;
+        private final Task task;
+        private final TaskId taskId;
+        private final Collection<String> remotes;
+
+        RemoteStatsFanout(Task task, ClusterStatsRequest request, Executor requestExecutor, Collection<String> remotes) {
+            this.task = task;
+            this.request = request;
+            this.requestExecutor = requestExecutor;
+            this.taskId = new TaskId(clusterService.getNodeName(), task.getId());
+            this.remotes = remotes;
+        }
+
+        @Override
+        protected void sendItemRequest(String clusterAlias, ActionListener<RemoteClusterStatsResponse> listener) {
+            var remoteRequest = new RemoteClusterStatsRequest(request.nodesIds());
+            var remoteClusterClient = remoteClusterService.getRemoteClusterClient(
+                clusterAlias,
+                requestExecutor,
+                RemoteClusterService.DisconnectedStrategy.RECONNECT_IF_DISCONNECTED
+            );
+            remoteRequest.setParentTask(taskId);
+            remoteClusterClient.execute(TransportRemoteClusterStatsAction.REMOTE_TYPE, remoteRequest, listener);
+        }
+
+        @Override
+        protected void onItemResponse(String clusterAlias, RemoteClusterStatsResponse response) {
+            if (isCancelled() == false) {
+                responses.put(clusterAlias, response);
+            }
+        }
+
+        @Override
+        protected void onItemFailure(String clusterAlias, Exception e) {
+            logger.warn("Failed to get remote cluster stats for [{}]: {}", clusterAlias, e);
+        }
+
+        private boolean isCancelled() {
+            return task instanceof CancellableTask cancellableTask && cancellableTask.isCancelled();
+        }
+
+        void start(SubscribableListener<Map<String, RemoteClusterStats>> future) {
+            super.run(task, remotes.iterator(), future);
+        }
+
+        @Override
+        protected Map<String, RemoteClusterStats> onCompletion() {
+            if (isCancelled()) {
+                return Map.of();
+            }
+
+            Map<String, RemoteClusterStats> remoteClustersStats = new HashMap<>();
+
+            for (String clusterAlias : remotes) {
+                RemoteClusterConnection remoteConnection = remoteClusterService.getRemoteClusterConnection(clusterAlias);
+                RemoteConnectionInfo remoteConnectionInfo = remoteConnection.getConnectionInfo();
+                RemoteClusterStatsResponse response = responses.get(clusterAlias);
+                var compression = RemoteClusterService.REMOTE_CLUSTER_COMPRESS.getConcreteSettingForNamespace(clusterAlias).get(settings);
+                var remoteClusterStats = new RemoteClusterStats(
+                    response,
+                    remoteConnectionInfo.getModeInfo().modeName(),
+                    remoteConnection.isSkipUnavailable(),
+                    compression.toString()
+                );
+                remoteClustersStats.put(clusterAlias, remoteClusterStats);
+            }
+            return remoteClustersStats;
+        }
+    }
+
+    private class ActionListenerWithRemotes implements ActionListener<ClusterStatsResponse> {
+        private final ActionListener<ClusterStatsResponse> listener;
+        private final SubscribableListener<Map<String, RemoteClusterStats>> remoteListener;
+
+        ActionListenerWithRemotes(Task task, ClusterStatsRequest request, ActionListener<ClusterStatsResponse> listener) {
+            this.listener = listener;
+            remoteListener = getStatsFromRemotes(task, request);
+        }
+
+        SubscribableListener<Map<String, RemoteClusterStats>> getStatsFromRemotes(Task task, ClusterStatsRequest request) {
+            if (doRemotes(request) == false) {
+                return SubscribableListener.newSucceeded(null);
+            }
+            var remotes = remoteClusterService.getRegisteredRemoteClusterNames();
+            if (remotes.isEmpty()) {
+                return SubscribableListener.newSucceeded(Map.of());
+            }
+            var remotesListener = new SubscribableListener<Map<String, RemoteClusterStats>>();
+            new RemoteStatsFanout(task, request, transportService.getThreadPool().executor(ThreadPool.Names.SEARCH_COORDINATION), remotes)
+                .start(remotesListener);
+            return remotesListener;
+        }
+
+        SubscribableListener<Map<String, RemoteClusterStats>> getRemoteClusterStats() {
+            return remoteListener;
+        }
+
+        @Override
+        public void onResponse(ClusterStatsResponse response) {
+            listener.onResponse(response);
+        }
+
+        @Override
+        public void onFailure(Exception e) {
+            listener.onFailure(e);
         }
     }
 }
