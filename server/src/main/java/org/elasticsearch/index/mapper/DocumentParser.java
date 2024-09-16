@@ -218,6 +218,10 @@ public final class DocumentParser {
         }
     }
 
+    private static Mapper.SourceKeepMode getSourceKeepMode(DocumentParserContext context, Optional<Mapper.SourceKeepMode> mapperMode) {
+        return mapperMode.orElseGet(context::sourceKeepModeFromIndexSettings);
+    }
+
     private static void throwNotAtEnd(XContentParser.Token token) {
         throw new IllegalArgumentException("Malformed content, found extra data after parsing: " + token);
     }
@@ -444,6 +448,7 @@ public final class DocumentParser {
             } else {
                 if (context.canAddIgnoredField()
                     && (fieldMapper.syntheticSourceMode() == FieldMapper.SyntheticSourceMode.FALLBACK
+                        || getSourceKeepMode(context, fieldMapper.sourceKeepMode()) == Mapper.SourceKeepMode.ALL
                         || (context.isWithinCopyTo() == false && context.isCopyToDestinationField(mapper.fullPath())))) {
                     Tuple<DocumentParserContext, XContentBuilder> contextWithSourceToStore = XContentDataHelper.cloneSubContext(context);
 
@@ -697,8 +702,8 @@ public final class DocumentParser {
                     || objectMapper.dynamic == ObjectMapper.Dynamic.RUNTIME);
             boolean fieldWithFallbackSyntheticSource = mapper instanceof FieldMapper fieldMapper
                 && fieldMapper.syntheticSourceMode() == FieldMapper.SyntheticSourceMode.FALLBACK;
-            boolean fieldWithStoredArraySource = mapper instanceof FieldMapper
-                && context.sourceKeepModeFromIndexSettings() == Mapper.SourceKeepMode.ARRAYS;
+            boolean fieldWithStoredArraySource = mapper instanceof FieldMapper fieldMapper
+                && getSourceKeepMode(context, fieldMapper.sourceKeepMode()) != Mapper.SourceKeepMode.NONE;
             boolean dynamicRuntimeContext = context.dynamic() == ObjectMapper.Dynamic.RUNTIME;
             boolean copyToFieldHasValuesInDocument = context.isWithinCopyTo() == false && context.isCopyToDestinationField(fullPath);
             if (objectRequiresStoringSource
@@ -872,7 +877,6 @@ public final class DocumentParser {
                 // ignore copy_to that targets inference fields, values are already extracted in the coordinating node to perform inference.
                 continue;
             }
-
             // In case of a hierarchy of nested documents, we need to figure out
             // which document the field should go to
             LuceneDocument targetDoc = null;
