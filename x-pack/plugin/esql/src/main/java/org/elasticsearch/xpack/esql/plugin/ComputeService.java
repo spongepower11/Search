@@ -21,6 +21,7 @@ import org.elasticsearch.action.support.RefCountingRunnable;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.util.BigArrays;
+import org.elasticsearch.common.util.concurrent.CountDown;
 import org.elasticsearch.compute.data.BlockFactory;
 import org.elasticsearch.compute.data.Page;
 import org.elasticsearch.compute.operator.Driver;
@@ -32,6 +33,7 @@ import org.elasticsearch.compute.operator.exchange.ExchangeSourceHandler;
 import org.elasticsearch.core.IOUtils;
 import org.elasticsearch.core.Releasable;
 import org.elasticsearch.core.Releasables;
+import org.elasticsearch.core.TimeValue;
 import org.elasticsearch.core.Tuple;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.query.QueryBuilder;
@@ -56,6 +58,7 @@ import org.elasticsearch.transport.TransportChannel;
 import org.elasticsearch.transport.TransportRequestHandler;
 import org.elasticsearch.transport.TransportRequestOptions;
 import org.elasticsearch.transport.TransportService;
+import org.elasticsearch.xpack.esql.action.EsqlExecutionInfo;
 import org.elasticsearch.xpack.esql.action.EsqlQueryAction;
 import org.elasticsearch.xpack.esql.action.EsqlSearchShardsAction;
 import org.elasticsearch.xpack.esql.enrich.EnrichLookupService;
@@ -71,6 +74,7 @@ import org.elasticsearch.xpack.esql.session.Configuration;
 import org.elasticsearch.xpack.esql.session.Result;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -130,6 +134,7 @@ public class ComputeService {
         CancellableTask rootTask,
         PhysicalPlan physicalPlan,
         Configuration configuration,
+        EsqlExecutionInfo executionInfo,
         ActionListener<Result> listener
     ) {
         Tuple<PhysicalPlan, PhysicalPlan> coordinatorAndDataNodePlan = PlannerUtils.breakPlanBetweenCoordinatorAndDataNode(
@@ -167,10 +172,11 @@ public class ComputeService {
                 null
             );
             try (
-                var computeListener = new ComputeListener(
+                var computeListener = ComputeListener.createComputeListener(
                     transportService,
                     rootTask,
-                    listener.map(r -> new Result(physicalPlan.output(), collectedPages, r.getProfiles()))
+                    executionInfo,
+                    listener.map(r -> new Result(physicalPlan.output(), collectedPages, r.getProfiles(), executionInfo))
                 )
             ) {
                 runCompute(rootTask, computeContext, coordinatorPlan, computeListener.acquireCompute());
@@ -194,11 +200,12 @@ public class ComputeService {
         );
         try (
             Releasable ignored = exchangeSource.addEmptySink();
-            var computeListener = new ComputeListener(
-                transportService,
-                rootTask,
-                listener.map(r -> new Result(physicalPlan.output(), collectedPages, r.getProfiles()))
-            )
+            // this is the top level ComputeListener called once at the end (e.g., once all clusters have finished for a CCS)
+            var computeListener = ComputeListener.createComputeListener(transportService, rootTask, executionInfo, listener.map(r -> {
+                long tookTimeMillis = System.currentTimeMillis() - configuration.getQueryStartTimeMillis();
+                executionInfo.setOverallTookTime(new TimeValue(tookTimeMillis));
+                return new Result(physicalPlan.output(), collectedPages, r.getProfiles(), executionInfo);
+            }))
         ) {
             // run compute on the coordinator
             exchangeSource.addCompletionListener(computeListener.acquireAvoid());
@@ -219,6 +226,7 @@ public class ComputeService {
                     Set.of(localConcreteIndices.indices()),
                     localOriginalIndices,
                     exchangeSource,
+                    executionInfo,
                     computeListener
                 );
             }
@@ -266,6 +274,7 @@ public class ComputeService {
         Set<String> concreteIndices,
         OriginalIndices originalIndices,
         ExchangeSourceHandler exchangeSource,
+        EsqlExecutionInfo executionInfo,
         ComputeListener computeListener
     ) {
         var planWithReducer = configuration.pragmas().nodeLevelReduction() == false
@@ -281,11 +290,24 @@ public class ComputeService {
         // but it would be better to have a proper impl.
         QueryBuilder requestFilter = PlannerUtils.requestFilter(planWithReducer, x -> true);
         var lookupListener = ActionListener.releaseAfter(computeListener.acquireAvoid(), exchangeSource.addEmptySink());
-        lookupDataNodes(parentTask, clusterAlias, requestFilter, concreteIndices, originalIndices, ActionListener.wrap(dataNodes -> {
+        // SearchShards API can_match is done in lookupDataNodes
+        lookupDataNodes(parentTask, clusterAlias, requestFilter, concreteIndices, originalIndices, ActionListener.wrap(dataNodeResult -> {
             try (RefCountingListener refs = new RefCountingListener(lookupListener)) {
+                // update ExecutionInfo with shard counts (total and skipped)
+                executionInfo.swapCluster(
+                    clusterAlias,
+                    (k, v) -> new EsqlExecutionInfo.Cluster.Builder(v).setTotalShards(dataNodeResult.totalShards())
+                        .setSuccessfulShards(dataNodeResult.totalShards())
+                        .setSkippedShards(dataNodeResult.skippedShards())
+                        .setFailedShards(0)
+                        .build()
+                );
+
+                int numDataNodes = dataNodeResult.dataNodes().size();
+                final CountDown countDown = numDataNodes == 0 ? null : new CountDown(numDataNodes);
                 // For each target node, first open a remote exchange on the remote node, then link the exchange source to
                 // the new remote exchange sink, and initialize the computation on the target node via data-node-request.
-                for (DataNode node : dataNodes) {
+                for (DataNode node : dataNodeResult.dataNodes()) {
                     var queryPragmas = configuration.pragmas();
                     ExchangeService.openExchange(
                         transportService,
@@ -296,7 +318,12 @@ public class ComputeService {
                         refs.acquire().delegateFailureAndWrap((l, unused) -> {
                             var remoteSink = exchangeService.newRemoteSink(parentTask, sessionId, transportService, node.connection);
                             exchangeSource.addRemoteSink(remoteSink, queryPragmas.concurrentExchangeClients());
-                            var dataNodeListener = ActionListener.runBefore(computeListener.acquireCompute(), () -> l.onResponse(null));
+                            ActionListener<ComputeResponse> computeResponseListener = computeListener.acquireComputeForDataNodes(
+                                clusterAlias,
+                                configuration.getQueryStartTimeMillis(),
+                                countDown
+                            );
+                            var dataNodeListener = ActionListener.runBefore(computeResponseListener, () -> l.onResponse(null));
                             transportService.sendChildRequest(
                                 node.connection,
                                 DATA_ACTION_NAME,
@@ -345,7 +372,10 @@ public class ComputeService {
                         exchangeSource.addRemoteSink(remoteSink, queryPragmas.concurrentExchangeClients());
                         var remotePlan = new RemoteClusterPlan(plan, cluster.concreteIndices, cluster.originalIndices);
                         var clusterRequest = new ClusterComputeRequest(cluster.clusterAlias, sessionId, configuration, remotePlan);
-                        var clusterListener = ActionListener.runBefore(computeListener.acquireCompute(), () -> l.onResponse(null));
+                        var clusterListener = ActionListener.runBefore(
+                            computeListener.acquireCCSCompute(cluster.clusterAlias()),
+                            () -> l.onResponse(null)
+                        );
                         transportService.sendChildRequest(
                             cluster.connection,
                             CLUSTER_ACTION_NAME,
@@ -494,6 +524,15 @@ public class ComputeService {
 
     }
 
+    /**
+     * Result from lookupDataNodes where can_match is performed to determine what shards can be skipped
+     * and which target nodes are needed for running the ES|QL query
+     * @param dataNodes list of DataNode to perform the ES|QL query on
+     * @param totalShards Total number of shards (from can_match phase), including skipped shards
+     * @param skippedShards Number of skipped shards (from can_match phase)
+     */
+    record DataNodeResult(List<DataNode> dataNodes, int totalShards, int skippedShards) {}
+
     record RemoteCluster(String clusterAlias, Transport.Connection connection, String[] concreteIndices, OriginalIndices originalIndices) {
 
     }
@@ -510,7 +549,7 @@ public class ComputeService {
         QueryBuilder filter,
         Set<String> concreteIndices,
         OriginalIndices originalIndices,
-        ActionListener<List<DataNode>> listener
+        ActionListener<DataNodeResult> listener
     ) {
         ActionListener<SearchShardsResponse> searchShardsListener = listener.map(resp -> {
             Map<String, DiscoveryNode> nodes = new HashMap<>();
@@ -519,9 +558,13 @@ public class ComputeService {
             }
             Map<String, List<ShardId>> nodeToShards = new HashMap<>();
             Map<String, Map<Index, AliasFilter>> nodeToAliasFilters = new HashMap<>();
+            int totalShards = 0;
+            int skippedShards = 0;
             for (SearchShardsGroup group : resp.getGroups()) {
                 var shardId = group.shardId();
                 if (group.skipped()) {
+                    totalShards++;
+                    skippedShards++;
                     continue;
                 }
                 if (group.allocatedNodes().isEmpty()) {
@@ -530,6 +573,7 @@ public class ComputeService {
                 if (concreteIndices.contains(shardId.getIndexName()) == false) {
                     continue;
                 }
+                totalShards++;
                 String targetNode = group.allocatedNodes().get(0);
                 nodeToShards.computeIfAbsent(targetNode, k -> new ArrayList<>()).add(shardId);
                 AliasFilter aliasFilter = resp.getAliasFilters().get(shardId.getIndex().getUUID());
@@ -543,7 +587,7 @@ public class ComputeService {
                 Map<Index, AliasFilter> aliasFilters = nodeToAliasFilters.getOrDefault(e.getKey(), Map.of());
                 dataNodes.add(new DataNode(transportService.getConnection(node), e.getValue(), aliasFilters));
             }
-            return dataNodes;
+            return new DataNodeResult(dataNodes, totalShards, skippedShards);
         });
         SearchShardsRequest searchShardsRequest = new SearchShardsRequest(
             originalIndices.indices(),
@@ -736,7 +780,7 @@ public class ComputeService {
                 request.indices(),
                 request.indicesOptions()
             );
-            try (var computeListener = new ComputeListener(transportService, (CancellableTask) task, listener)) {
+            try (var computeListener = ComputeListener.createComputeListener(transportService, (CancellableTask) task, null, listener)) {
                 runComputeOnDataNode((CancellableTask) task, sessionId, reducePlan, request, computeListener);
             }
         }
@@ -754,7 +798,16 @@ public class ComputeService {
                 listener.onFailure(new IllegalStateException("expected exchange sink for a remote compute; got " + plan));
                 return;
             }
-            try (var computeListener = new ComputeListener(transportService, (CancellableTask) task, listener)) {
+            String clusterAlias = request.clusterAlias();
+            /*
+             * This handler runs only on remote cluster coordinators, so it creates a new local EsqlExecutionInfo object to record
+             * execution metadata for ES|QL processing local to this cluster. The execution info will be copied into the
+             * ComputeResponse that is sent back to the primary coordinating cluster
+             */
+            EsqlExecutionInfo execInfo = new EsqlExecutionInfo();
+            execInfo.swapCluster(clusterAlias, (k, v) -> new EsqlExecutionInfo.Cluster(clusterAlias, Arrays.toString(request.indices())));
+            CancellableTask cancellable = (CancellableTask) task;
+            try (var computeListener = ComputeListener.createOnRemote(clusterAlias, transportService, cancellable, execInfo, listener)) {
                 runComputeOnRemoteCluster(
                     request.clusterAlias(),
                     request.sessionId(),
@@ -763,6 +816,7 @@ public class ComputeService {
                     (ExchangeSinkExec) plan,
                     Set.of(remoteClusterPlan.targetIndices()),
                     remoteClusterPlan.originalIndices(),
+                    execInfo,
                     computeListener
                 );
             }
@@ -786,6 +840,7 @@ public class ComputeService {
         ExchangeSinkExec plan,
         Set<String> concreteIndices,
         OriginalIndices originalIndices,
+        EsqlExecutionInfo executionInfo,
         ComputeListener computeListener
     ) {
         final var exchangeSink = exchangeService.getSinkHandler(globalSessionId);
@@ -821,6 +876,7 @@ public class ComputeService {
                 concreteIndices,
                 originalIndices,
                 exchangeSource,
+                executionInfo,
                 computeListener
             );
         }
