@@ -25,6 +25,7 @@ import org.elasticsearch.search.fetch.subphase.FetchSourceContext;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 import static org.elasticsearch.rest.RestRequest.Method.POST;
 import static org.elasticsearch.rest.RestRequest.Method.PUT;
@@ -41,11 +42,14 @@ import static org.elasticsearch.rest.RestRequest.Method.PUT;
 @ServerlessScope(Scope.PUBLIC)
 public class RestBulkAction extends BaseRestHandler {
     public static final String TYPES_DEPRECATION_MESSAGE = "[types removal] Specifying types in bulk requests is deprecated.";
+    public static final String FAILURE_STORE_STATUS_CAPABILITY = "failure_store_status";
 
     private final boolean allowExplicitIndex;
+    private final Set<String> capabilities;
 
     public RestBulkAction(Settings settings) {
         this.allowExplicitIndex = MULTI_ALLOW_EXPLICIT_INDEX.get(settings);
+        this.capabilities = Set.of(FAILURE_STORE_STATUS_CAPABILITY);
     }
 
     @Override
@@ -109,5 +113,10 @@ public class RestBulkAction extends BaseRestHandler {
     @Override
     public boolean allowsUnsafeBuffers() {
         return true;
+    }
+
+    @Override
+    public Set<String> supportedCapabilities() {
+        return capabilities;
     }
 }

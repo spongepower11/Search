@@ -26,6 +26,7 @@ import org.elasticsearch.rest.action.RestToXContentListener;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import static org.elasticsearch.rest.RestRequest.Method.POST;
 import static org.elasticsearch.rest.RestRequest.Method.PUT;
@@ -35,6 +36,7 @@ public class RestIndexAction extends BaseRestHandler {
     static final String TYPES_DEPRECATION_MESSAGE = "[types removal] Specifying types in document "
         + "index requests is deprecated, use the typeless endpoints instead (/{index}/_doc/{id}, /{index}/_doc, "
         + "or /{index}/_create/{id}).";
+    private final Set<String> capabilities = Set.of(RestBulkAction.FAILURE_STORE_STATUS_CAPABILITY);
 
     @Override
     public List<Route> routes() {
@@ -144,4 +146,8 @@ public class RestIndexAction extends BaseRestHandler {
         );
     }
 
+    @Override
+    public Set<String> supportedCapabilities() {
+        return capabilities;
+    }
 }
