@@ -1,0 +1,5 @@
+pr: 112762
+summary: Adding the ability to include component template substitutions in simulate ingest API requests
+area: Ingest Node
+type: enhancement
+issues: []
